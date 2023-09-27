@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <stddef.h>
 
 // Topics published by host
 #define MBOT_TIMESYNC       201
@@ -20,12 +21,12 @@
 // The host interrupt will be on core 0 and the mbot interrupt will be on core 1.
 // The host interrupt will be triggered by the host sending data to the ESP32 and will be handled by the data_recv_host_isr function.
 // The mbot interrupt will be triggered by the mbot sending data to the ESP32 and will be handled by the data_recv_mbot_isr function.
-// Upon receiving data from the host, data_recv_host_isr will immediately send that data back to the mbot via I2C.
+// Upon receiving data from the host, data_recv_host_isr will immediately send that data back to the mbot via SPI.
 // Upon receiving data from the mbot, data_recv_mbot_isr will immediately send that data back to the host via Wi-Fi.
 
 typedef struct client_t {
-    esp_now_peer_info_t host;
-    spi_slave_transaction_t spi;
+    esp_now_peer_info_t host; // The host's peer info for ESP-NOW communication
+    spi_slave_transaction_t spi; // The SPI transaction for communication with the mbot
 } client_t;
 
 // Initializes the client
