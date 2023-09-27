@@ -23,6 +23,27 @@ typedef struct robot_t {
 // Initializes the robot
 int robot_init(robot_t *r);
 
+// Gets the odometry
+int robot_get_odometry(robot_t *r, serial_pose2d_t *odometry);
+
+// Gets the IMU
+int robot_get_imu(robot_t *r, serial_mbot_imu_t *imu);
+
+// Gets the encoders
+int robot_get_encoders(robot_t *r, serial_mbot_encoders_t *encoders);
+
+// Gets the velocity
+int robot_get_vel(robot_t *r, serial_twist2d_t *velocity);
+
+// Gets the motor velocity
+int robot_get_motor_vel(robot_t *r, serial_mbot_motor_vel_t *motor_vel);
+
+// Gets the motor PWM
+int robot_get_motor_pwm(robot_t *r, serial_mbot_motor_pwm_t *motor_pwm);
+
+// Gets the drive mode
+int robot_get_drive_mode(robot_t *r, int *drive_mode);
+
 // Resets the odometry
 int robot_reset_odometry(robot_t *r);
 
