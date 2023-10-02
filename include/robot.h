@@ -1,4 +1,6 @@
 #include <stdint.h>
+#include "mbot_lcm_msgs_serial.h"
+#include "mbot_params.h"
 
 enum drive_modes{
     MODE_MOTOR_PWM = 0,
@@ -8,8 +10,8 @@ enum drive_modes{
 };
 
 typedef struct robot_t {
-    serial_pose2d_t odometry; // The robot's current odometry
-    serial_twist2d_t velocity; // The robot's current velocity
+    serial_pose2D_t odometry; // The robot's current odometry
+    serial_twist2D_t velocity; // The robot's current velocity
     serial_mbot_imu_t imu; // The robot's current IMU values
     serial_mbot_encoders_t encoders; // The robot's current encoder values
     serial_mbot_motor_vel_t motor_vel_goal; // The robot's goal motor velocity
@@ -21,10 +23,10 @@ typedef struct robot_t {
 } robot_t;
 
 // Initializes the robot
-int robot_init(robot_t *r);
+int robot_init(robot_t *r, mbot_params_t params, uint8_t *mac_address);
 
 // Gets the odometry
-int robot_get_odometry(robot_t *r, serial_pose2d_t *odometry);
+int robot_get_odometry(robot_t *r, serial_pose2D_t *odometry);
 
 // Gets the IMU
 int robot_get_imu(robot_t *r, serial_mbot_imu_t *imu);
@@ -33,7 +35,7 @@ int robot_get_imu(robot_t *r, serial_mbot_imu_t *imu);
 int robot_get_encoders(robot_t *r, serial_mbot_encoders_t *encoders);
 
 // Gets the velocity
-int robot_get_vel(robot_t *r, serial_twist2d_t *velocity);
+int robot_get_vel(robot_t *r, serial_twist2D_t *velocity);
 
 // Gets the motor velocity
 int robot_get_motor_vel(robot_t *r, serial_mbot_motor_vel_t *motor_vel);
