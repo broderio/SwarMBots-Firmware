@@ -1,3 +1,8 @@
+#include <stdint.h>
+#include <stddef.h>
+#include <esp_now.h>
+#include <driver/uart.h>
+
 // The host_t board will receive messages from the client board over WiFi using the ESP-NOW protocol
 // The host_t baord will send messages to the client board over WiFi
 // The host_t will send messages to the user's laptop via USB serial

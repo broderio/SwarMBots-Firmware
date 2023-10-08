@@ -1,6 +1,6 @@
 #include <stdint.h>
-#include "mbot_lcm_msgs_serial.h"
-#include "mbot_params.h"
+#include "common/mbot_lcm_msgs_serial.h"
+#include "common/mbot_params.h"
 
 enum drive_modes{
     MODE_MOTOR_PWM = 0,
