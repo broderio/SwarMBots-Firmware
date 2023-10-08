@@ -1,5 +1,7 @@
 #include <stdint.h>
 #include <stddef.h>
+#include <esp_now.h>
+#include <driver/spi_slave.h>
 
 // Topics published by host
 #define MBOT_TIMESYNC       201
