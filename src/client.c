@@ -30,7 +30,6 @@
 
 bool read_spi = false;
 SemaphoreHandle_t read_semaphore;
-int out_len = 0, in_len = 0;
 
 //Called after a transaction is queued and ready for pickup by master. We use this to set the handshake line high.
 void my_post_setup_cb(spi_slave_transaction_t *trans) {
@@ -47,32 +46,12 @@ void my_post_trans_cb(spi_slave_transaction_t *trans) {
 void send_task(void* args) {
     esp_err_t ret;
     int n=0;
-    WORD_ALIGNED_ATTR uint8_t sendbuf[84]="";
-    memset(sendbuf, 0, 84);
-
+    WORD_ALIGNED_ATTR uint8_t sendbuf[84];
     spi_slave_transaction_t t;
-    memset(&t, 0, sizeof(t));
 
-    serial_twist2D_t msg = {
-        .vx = 0.0,
-        .vy = 0.0,
-        .wz = 0.0
-    };
-
-    while(1) {
-        memset(sendbuf, 0xA5, 84);
-
-        if (n % 2 == 0) {
-            msg.vx = 0.0;
-        }
-        else {
-            msg.vx = 2.0;
-        }
-        size_t msg_len = sizeof(msg);
-        uint8_t* msg_serialized = malloc(msg_len);
-        twist2D_t_serialize(&msg, msg_serialized);
-        encode_msg(msg_serialized, msg_len, MBOT_VEL_CMD, sendbuf, msg_len + ROS_PKG_LEN);
-        free(msg_serialized);
+    // TODO: change while loop to spin until we recieve a message over wifi
+    while(1) { 
+        // TODO: fill sendbuf with received wifi data here
 
         t.length = 84 * 8;
         t.tx_buffer = sendbuf;
@@ -86,7 +65,6 @@ void send_task(void* args) {
                 printf("Error transmitting: 0x%x\n", ret);
                 continue;
             }
-            out_len = t.trans_len / 8;
         }
         printf("Sent %zu bytes\n", t.trans_len / 8);
         ++n;
@@ -97,16 +75,11 @@ void send_task(void* args) {
 void recv_task(void* args) {
     esp_err_t ret;
     int n=0;
-    WORD_ALIGNED_ATTR uint8_t recvbuf[84]="";
-    memset(recvbuf, 0, 84);
+    WORD_ALIGNED_ATTR uint8_t recvbuf[84];
 
     spi_slave_transaction_t t;
-    memset(&t, 0, sizeof(t));
-
     while(1) {
-        memset(recvbuf, 0xA5, 84);
-
-        t.length = 128 * 8;
+        t.length = 84 * 8;
         t.tx_buffer = NULL;
         t.rx_buffer = recvbuf;
 
@@ -118,37 +91,12 @@ void recv_task(void* args) {
                 printf("Error transmitting: 0x%x\n", ret);
                 continue;
             }
-            in_len = t.trans_len / 8;
         }
 
         if (t.trans_len > t.length) continue;
 
-        uint8_t header[ROS_HEADER_LEN];
-        read_header(&t, header);
-        bool valid_header = validate_header(header);
-        if (!valid_header) {
-            printf("Invalid header\n");
-            continue;
-        }
+        // TODO: send t.tx_buffer over wifi
 
-        uint16_t message_len = ((uint16_t)header[3] << 8) + (uint16_t)header[2];
-        uint16_t topic_id = ((uint16_t)header[6] << 8) + (uint16_t)header[5];
-        uint8_t msg_data_serialized[message_len];
-        char topic_msg_data_checksum = 0;
-
-        read_message(&t, &msg_data_serialized[0], message_len, &topic_msg_data_checksum);
-        bool valid_message = validate_message(header, msg_data_serialized, message_len, topic_msg_data_checksum);
-        if (!valid_message) {
-            printf("Invalid message\n");
-            continue;
-        }
-
-        if (valid_message) {
-            // printf("Received %zu bytes\n", t.trans_len / 8);
-        }
-
-        // printf("Topic ID: %d\n", topic_id);
-        // printf("Message Length: %d\n", message_len);
         ++n;
         vTaskDelay(5 / portTICK_PERIOD_MS);
     }
@@ -189,6 +137,7 @@ void app_main(void)
     ret=spi_slave_initialize(SPI2_HOST, &buscfg, &slvcfg, SPI_DMA_CH_AUTO);
     assert(ret==ESP_OK);
 
+    // Initialize GPIO handshake for sending messages to MBoard
     gpio_config_t io_conf;
     io_conf.intr_type=GPIO_INTR_DISABLE;
     io_conf.mode=GPIO_MODE_OUTPUT;
@@ -198,6 +147,7 @@ void app_main(void)
     ret = gpio_config(&io_conf);
     if (ret != ESP_OK) printf("Error configuring GPIO: %d\n", ret);
 
+    // Initialize GPIO handshake for receiving messages from MBoard
     io_conf.intr_type=GPIO_INTR_DISABLE;
     io_conf.mode=GPIO_MODE_OUTPUT;
     io_conf.pin_bit_mask=(1<<GPIO_RECV);
@@ -209,14 +159,20 @@ void app_main(void)
     printf("Minimum free heap size: %lu bytes\n", esp_get_minimum_free_heap_size());
     printf("SPI Reciever ready.\n");
 
+    // Semaphore for SPI transmissions
     read_semaphore = xSemaphoreCreateBinary();
 
+    // Create tasks
     TaskHandle_t recv_task_handle, send_task_handle;
+
+    // TODO: Check if its faster to not pin to a specific core
     xTaskCreatePinnedToCore(recv_task, "recv_task", 2048*4, NULL, 5, &recv_task_handle, 0);
     xTaskCreatePinnedToCore(send_task, "send_task", 2048*4, NULL, 5, &send_task_handle, 1);
+
+    // Give semaphore to start SPI transmissions
     xSemaphoreGive(read_semaphore);
 
     while(1) {
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        // Spin while tasks run
     }
 }
