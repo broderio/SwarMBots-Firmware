@@ -1,31 +1,59 @@
-#include <stdint.h>
-#include <stddef.h>
-#include <esp_now.h>
-#include <driver/uart.h>
+#ifndef HOST_AP_H
+#define HOST_AP_H
 
-// The host_t board will receive messages from the client board over WiFi using the ESP-NOW protocol
-// The host_t baord will send messages to the client board over WiFi
-// The host_t will send messages to the user's laptop via USB serial
-// An interrupt will handle receiving messages from the client board and sending them to the user's laptop
-// A main task will handle reading messages from the user's laptop and sending them to the client board
+#define ESPNOW_WIFI_MODE WIFI_MODE_AP
+#define ESPNOW_WIFI_IF   ESP_IF_WIFI_AP
 
-typedef struct host_t {
-    esp_now_peer_info_t client; // The client's peer info for ESP-NOW communication
-    uart_config_t user; // The user's UART configuration for USB serial communication
-    bool user_connected; // Whether the user is connected (determines controller mode or host mode)
-} host_t;
+#define ESPNOW_CHANNEL          1                   //wifi channel - LEGAL: use only 1, 6, or 11 for FCC compliance & reliability
+#define ESPNOW_PMK              "pmk1234567890123"  //primary master key
+#define ESPNOW_DATA_MAX_LEN     100                 //max size of packet payload
 
-// Initializes the host
-int host_init(host_t *h);
+#define ESPNOW_QUEUE_SIZE       6
 
-// Sends data to the client
-int host_send_client(host_t *h, uint8_t *data, size_t len);
+#define UART_PORT_NUM           0
 
-// Sends data to the user
-int host_send_user(host_t *h, uint8_t *data, size_t len);
+#define IS_BROADCAST_ADDR(addr) (memcmp(addr, s_host_client_mac, ESP_NOW_ETH_ALEN) == 0)
 
-// ISR for receiving data from the client (this will be deactived when the user is not connected)
-void data_recv_client_isr(void *arg);
+typedef enum {
+    HOST_ESPNOW_SEND_CB,
+    HOST_ESPNOW_RECV_CB,
+} host_espnow_event_id_t;
 
-// Main task for receiving data from the user (this will read from joystick and buttons when user is not connected)
-void data_recv_user_task(void *arg);
+typedef struct {
+    uint8_t mac_addr[ESP_NOW_ETH_ALEN];
+    esp_now_send_status_t status;
+} host_espnow_event_send_cb_t;
+
+typedef struct {
+    uint8_t mac_addr[ESP_NOW_ETH_ALEN];
+    uint8_t *data;
+    int data_len;
+} host_espnow_event_recv_cb_t;
+
+typedef union {
+    host_espnow_event_send_cb_t send_cb;
+    host_espnow_event_recv_cb_t recv_cb;
+} host_espnow_event_info_t;
+
+/* When ESPNOW sending or receiving callback function is called, post event to ESPNOW task. */
+typedef struct {
+    host_espnow_event_id_t id;
+    host_espnow_event_info_t info;
+} host_espnow_event_t;
+
+/* User defined field of ESPNOW data. */
+//this should be the same between host and client
+typedef struct {
+    uint8_t len;                         //true if the package contains info
+    uint16_t crc;                         //CRC16 value of ESPNOW data.                             checksum
+    uint8_t payload[0];                   //Real payload of ESPNOW data.
+} __attribute__((packed)) comm_espnow_data_t;
+
+/* Parameters of sending ESPNOW data. */
+typedef struct {
+    int len;                              //Length of ESPNOW data to be sent (buffer), unit: byte.
+    uint8_t *buffer;                      //Buffer pointing to ESPNOW data.                         must be >= sizeof(comm_espnow_data_t)
+    uint8_t dest_mac[ESP_NOW_ETH_ALEN];   //MAC address of destination device.
+} host_espnow_send_param_t;
+
+#endif

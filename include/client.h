@@ -1,47 +1,57 @@
-#include <stdint.h>
-#include <stddef.h>
-#include <esp_now.h>
-#include <driver/spi_slave.h>
+#ifndef CLIENT_AP_H
+#define CLIENT_AP_H
 
-// Topics published by host
-#define MBOT_TIMESYNC       201
-#define MBOT_ODOMETRY_RESET 211
-#define MBOT_ENCODERS_RESET 222
-#define MBOT_MOTOR_PWM_CMD  230
-#define MBOT_MOTOR_VEL_CMD  231
-#define MBOT_VEL_CMD        214
+#define ESPNOW_WIFI_MODE WIFI_MODE_AP
+#define ESPNOW_WIFI_IF   ESP_IF_WIFI_AP
 
-// Topics published by client
-#define MBOT_ODOMETRY       210
-#define MBOT_IMU            220
-#define MBOT_ENCODERS       221
-#define MBOT_VEL            234
-#define MBOT_MOTOR_VEL      232
-#define MBOT_MOTOR_PWM      233
+#define ESPNOW_CHANNEL          1                   //wifi channel - LEGAL: use only 1, 6, or 11 for FCC compliance & reliability
+#define ESPNOW_PMK              "pmk1234567890123"  //primary master key
+#define ESPNOW_DATA_MAX_LEN     100                 //max size of packet payload
 
-// There are 2 cores on the ESP32. Two interrupts will be used for communication with the host and the mbot.
-// The host interrupt will be on core 0 and the mbot interrupt will be on core 1.
-// The host interrupt will be triggered by the host sending data to the ESP32 and will be handled by the data_recv_host_isr function.
-// The mbot interrupt will be triggered by the mbot sending data to the ESP32 and will be handled by the data_recv_mbot_isr function.
-// Upon receiving data from the host, data_recv_host_isr will immediately send that data back to the mbot via SPI.
-// Upon receiving data from the mbot, data_recv_mbot_isr will immediately send that data back to the host via Wi-Fi.
+#define ESPNOW_QUEUE_SIZE       6
 
-typedef struct client_t {
-    esp_now_peer_info_t host; // The host's peer info for ESP-NOW communication
-    spi_slave_transaction_t spi; // The SPI transaction for communication with the mbot
-} client_t;
+#define IS_BROADCAST_ADDR(addr) (memcmp(addr, s_client_client_mac, ESP_NOW_ETH_ALEN) == 0)
 
-// Initializes the client
-int client_init(client_t *c);
+typedef enum {
+    CLIENT_ESPNOW_SEND_CB,
+    CLIENT_ESPNOW_RECV_CB,
+} client_espnow_event_id_t;
 
-// Sends data to the host
-int client_send_host(client_t *c, uint8_t topic_id, uint8_t *data, size_t len);
+typedef struct {
+    uint8_t mac_addr[ESP_NOW_ETH_ALEN];
+    esp_now_send_status_t status;
+} client_espnow_event_send_cb_t;
 
-// Sends data to the mbot
-int client_send_mbot(client_t *c, uint8_t topic_id, uint8_t *data, size_t len);
+typedef struct {
+    uint8_t mac_addr[ESP_NOW_ETH_ALEN];
+    uint8_t *data;
+    int data_len;
+} client_espnow_event_recv_cb_t;
 
-// ISR for receiving data from the host
-void data_recv_host_isr(void *arg);
+typedef union {
+    client_espnow_event_send_cb_t send_cb;
+    client_espnow_event_recv_cb_t recv_cb;
+} client_espnow_event_info_t;
 
-// ISR for receiving data from the mbot
-void data_recv_mbot_isr(void *arg);
+/* When ESPNOW sending or receiving callback function is called, post event to ESPNOW task. */
+typedef struct {
+    client_espnow_event_id_t id;
+    client_espnow_event_info_t info;
+} client_espnow_event_t;
+
+/* User defined field of ESPNOW data. */
+//this should be the same between client and client
+typedef struct {
+    uint8_t len;                          //length of payload
+    uint16_t crc;                         //CRC16 value of ESPNOW data.                             checksum
+    uint8_t payload[0];                   //Real payload of ESPNOW data.
+} __attribute__((packed)) comm_espnow_data_t;
+
+/* Parameters of sending ESPNOW data. */
+typedef struct {
+    int len;                              //Length of ESPNOW data to be sent (buffer), unit: byte.
+    uint8_t *buffer;                      //Buffer pointing to ESPNOW data.                         must be >= sizeof(comm_espnow_data_t)
+    uint8_t dest_mac[ESP_NOW_ETH_ALEN];   //MAC address of destination device.
+} client_espnow_send_param_t;
+
+#endif
