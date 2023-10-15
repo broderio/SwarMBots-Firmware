@@ -1,3 +1,4 @@
+mkdir -p lib/esp-idf 
 cd lib
 git submodule update --init
 cd esp-idf
