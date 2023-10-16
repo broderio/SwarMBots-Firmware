@@ -52,5 +52,8 @@ chmod +x install.sh
 cd ../../
 
 export IDF_PATH="$PWD/lib/esp-idf"
+echo $IDF_PATH
 export PATH="$IDF_PATH/tools:$PATH"
-export LCM_INCLUDE_DIR="$PWD/lib/mbot_lcm_base/mbot_lcm_serial/include/"
+echo $PATH
+export LCM_INCLUDE_DIR="$PWD/lib/mbot_lcm_base/"
+echo $LCM_INCLUDE_DIR

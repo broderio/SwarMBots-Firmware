@@ -421,22 +421,7 @@ void recv_task(void* args) {
     }
 }
 
-//Main application
-void app_main(void)
-{
-    // Initialize NVS
-    esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK( nvs_flash_erase() );
-        ret = nvs_flash_init();
-    }
-    ESP_ERROR_CHECK( ret );
-
-    client_wifi_init();
-    client_espnow_init();
-
-    printf("Starting SPI test ...\n");
-
+int client_spi_init(void) {
     //Configuration for the SPI bus
     spi_bus_config_t buscfg={
         .mosi_io_num=GPIO_MOSI,
@@ -456,15 +441,17 @@ void app_main(void)
         .post_trans_cb=my_post_trans_cb
     };
     
-    printf("Setting SPI pins ...\n");
     //Enable pull-ups on SPI lines so we don't detect rogue pulses when no master is connected.
     gpio_set_pull_mode(GPIO_MOSI, GPIO_PULLUP_ONLY);
     gpio_set_pull_mode(GPIO_SCLK, GPIO_PULLUP_ONLY);
     gpio_set_pull_mode(GPIO_CS, GPIO_PULLUP_ONLY);
 
     //Initialize SPI slave interface
-    ret=spi_slave_initialize(SPI2_HOST, &buscfg, &slvcfg, SPI_DMA_CH_AUTO);
-    assert(ret==ESP_OK);
+    esp_err_t ret = spi_slave_initialize(SPI2_HOST, &buscfg, &slvcfg, SPI_DMA_CH_AUTO);
+    if (ret != ESP_OK) { 
+        printf("Error initializing SPI slave: %d\n", ret);
+        return ret;
+    }
 
     // Initialize GPIO handshake for sending messages to MBoard
     gpio_config_t io_conf;
@@ -474,7 +461,10 @@ void app_main(void)
     io_conf.pull_down_en = 0;
     io_conf.pull_up_en = 0;
     ret = gpio_config(&io_conf);
-    if (ret != ESP_OK) printf("Error configuring GPIO: %d\n", ret);
+    if (ret != ESP_OK) {
+        printf("Error configuring GPIO: %d\n", ret);
+        return ret;
+    }
 
     // Initialize GPIO handshake for receiving messages from MBoard
     io_conf.intr_type=GPIO_INTR_DISABLE;
@@ -483,10 +473,32 @@ void app_main(void)
     io_conf.pull_down_en = 0;
     io_conf.pull_up_en = 0;
     ret = gpio_config(&io_conf);
-    if (ret != ESP_OK) printf("Error configuring GPIO: %d\n", ret);
+    if (ret != ESP_OK) {
+        printf("Error configuring GPIO: %d\n", ret);
+        return ret;
+    }
+    // printf("Minimum free heap size: %lu bytes\n", esp_get_minimum_free_heap_size());
+}
 
-    printf("Minimum free heap size: %lu bytes\n", esp_get_minimum_free_heap_size());
-    printf("SPI Reciever ready.\n");
+//Main application
+void app_main(void)
+{
+    // Initialize NVS
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK( nvs_flash_erase() );
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK( ret );
+
+    printf("Initializing WiFi...\n");
+    client_wifi_init();
+
+    printf("Initializing ESP-NOW...\n");
+    client_espnow_init();
+
+    printf("Initializing SPI...\n");
+    client_spi_init();
 
     // Mutex for SPI transmissions
     spi_mutex = xSemaphoreCreateMutex();
@@ -496,7 +508,7 @@ void app_main(void)
 
     packet_send_queue = xQueueCreate(ESPNOW_QUEUE_SIZE, sizeof(client_espnow_event_t));
     if (packet_send_queue == NULL) {
-        ESP_LOGE(TAG, "Create mutex fail");
+        ESP_LOGE(TAG, "Failed to create mutex.");
         return;
     }
 
