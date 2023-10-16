@@ -1,3 +1,4 @@
+idf.py set-target esp32s3
 if [ $1 == client ]; then
     echo "building client ..."
     cd client
