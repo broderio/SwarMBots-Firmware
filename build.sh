@@ -1,4 +1,3 @@
-echo $1
 if [ $1 == client ]; then
     echo "building client ..."
     cd client
