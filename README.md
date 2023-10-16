@@ -16,7 +16,7 @@
 3. Run the setup script.
    ```
    chmod +x setup.sh
-   ./setup.sh
+   source ./setup.sh
    ```
 4. Run the build script
    ```
