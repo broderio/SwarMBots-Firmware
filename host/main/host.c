@@ -10,9 +10,6 @@
 #include "driver/spi_slave.h"
 #include "driver/gpio.h"
 
-#include "common/comms.h"
-#include "common/mbot_lcm_msgs_serial.h"
-
 #include <stdlib.h>
 #include <time.h>
 #include <string.h>
