@@ -39,7 +39,6 @@ git submodule update --init
 echo "Building LCM message types ..."
 cd mbot_lcm_base
 ./scripts/install.sh
-cp build/mbot_msgs/mbot_lcm_msgs_serial.h ../../include/common/mbot_lcm_msgs_serial.h
 cd ../
 
 echo "Building ESP-IDF ..."
