@@ -402,7 +402,7 @@ void send_task(void *args)
             continue;
         }
         // xLastWakeTime = xTaskGetTickCount();
-        t.length = 84 * 8;
+        t.length = dat.info.recv_cb.data_len * 8;
         t.tx_buffer = dat.info.recv_cb.data;
         t.rx_buffer = NULL;
         printf("Received packet. Waiting for lock...\n");
