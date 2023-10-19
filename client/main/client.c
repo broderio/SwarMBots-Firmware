@@ -320,7 +320,7 @@ static esp_err_t client_espnow_init(void)
     peer->channel = ESPNOW_CHANNEL;
     peer->ifidx = ESPNOW_WIFI_IF;
     peer->encrypt = false;
-    memcpy(peer->peer_addr, s_host_mac, ESP_NOW_ETH_ALEN);
+    memcpy(peer->peer_addr, s_host_mac, ESP_NOW_ETH_ALEN); 
     ESP_ERROR_CHECK(esp_now_add_peer(peer));
     free(peer);
 
@@ -375,7 +375,7 @@ void my_post_setup_cb(spi_slave_transaction_t *trans)
 // Called after transaction is sent/received. We use this to set the handshake line low.
 void my_post_trans_cb(spi_slave_transaction_t *trans)
 {
-    if (trans->rx_buffer)
+    if (trans->tx_buffer == NULL)
         gpio_set_level(GPIO_RECV, 0);
     else
         gpio_set_level(GPIO_SEND, 0);
@@ -428,6 +428,7 @@ void recv_task(void *args)
         t.tx_buffer = NULL;
         t.rx_buffer = recvbuf;
 
+        printf("Waiting for packet...\n");
         ret = spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
         if (ret != ESP_OK)
         {
