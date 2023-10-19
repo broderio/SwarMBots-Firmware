@@ -362,13 +362,11 @@ static void client_espnow_deinit(client_espnow_send_param_t *send_param)
     esp_now_deinit();
 }
 
-bool read_spi = false;
-SemaphoreHandle_t spi_mutex;
 
 // Called after a transaction is queued and ready for pickup by master. We use this to set the handshake line high.
 void my_post_setup_cb(spi_slave_transaction_t *trans)
 {
-    if (read_spi)
+    if (trans->tx_buffer == NULL)
         gpio_set_level(GPIO_RECV, 1);
     else
         gpio_set_level(GPIO_SEND, 1);
@@ -377,7 +375,7 @@ void my_post_setup_cb(spi_slave_transaction_t *trans)
 // Called after transaction is sent/received. We use this to set the handshake line low.
 void my_post_trans_cb(spi_slave_transaction_t *trans)
 {
-    if (read_spi)
+    if (trans->rx_buffer)
         gpio_set_level(GPIO_RECV, 0);
     else
         gpio_set_level(GPIO_SEND, 0);
@@ -403,16 +401,11 @@ void send_task(void *args)
         t.tx_buffer = dat.info.recv_cb.data;
         t.rx_buffer = NULL;
         printf("Received packet. Waiting for lock...\n");
-        if (xSemaphoreTake(spi_mutex, portMAX_DELAY) == pdTRUE)
+        ret = spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
+        if (ret != ESP_OK)
         {
-            read_spi = false;
-            ret = spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
-            xSemaphoreGive(spi_mutex);
-            if (ret != ESP_OK)
-            {
-                printf("Error transmitting: 0x%x\n", ret);
-                continue;
-            }
+            printf("Error transmitting: 0x%x\n", ret);
+            continue;
         }
         printf("Sent %zu bytes\n", t.trans_len / 8);
         ++n;
@@ -435,16 +428,11 @@ void recv_task(void *args)
         t.tx_buffer = NULL;
         t.rx_buffer = recvbuf;
 
-        if (xSemaphoreTake(spi_mutex, portMAX_DELAY) == pdTRUE)
+        ret = spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
+        if (ret != ESP_OK)
         {
-            read_spi = true;
-            ret = spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
-            xSemaphoreGive(spi_mutex);
-            if (ret != ESP_OK)
-            {
-                printf("Error transmitting: 0x%x\n", ret);
-                continue;
-            }
+            printf("Error transmitting: 0x%x\n", ret);
+            continue;
         }
 
         if (t.trans_len > t.length)
@@ -542,7 +530,6 @@ void app_main(void)
     client_spi_init();
 
     // Mutex for SPI transmissions
-    spi_mutex = xSemaphoreCreateMutex();
 
     // Create tasks
     TaskHandle_t recv_task_handle, send_task_handle;
