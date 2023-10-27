@@ -261,6 +261,7 @@ static void client_espnow_task(void *pvParameter)
 
                 recv_data[recv_len] = '\0'; // add null terminator since we'll be interpreting this as a string
                 dat.info.recv_cb.data = recv_data;
+                dat.info.recv_cb.data_len = recv_len;
                 ESP_LOGI(TAG, "Received data from Host: %s", (char *)recv_data);
                 if (xQueueSend(packet_send_queue, &dat, ESPNOW_MAXDELAY) != pdTRUE)
                 {
@@ -401,14 +402,14 @@ void send_task(void *args)
         t.tx_buffer = dat.info.recv_cb.data;
         t.rx_buffer = NULL;
 
-        // printf("Received packet. Waiting for lock...\n");
+        printf("Received packet. Waiting for lock...\n");
         ret = spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
         if (ret != ESP_OK)
         {
             printf("Error transmitting: 0x%x\n", ret);
             continue;
         }
-        // printf("Sent %zu bytes\n", t.trans_len / 8);
+        printf("Sent %zu bytes\n", t.trans_len / 8);
     }
 }
 
