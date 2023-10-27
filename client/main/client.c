@@ -25,17 +25,21 @@
 #include "esp_mac.h"
 #include "esp_now.h"
 #include "esp_crc.h"
+#include <esp_timer.h>
 
 #include "client.h"
+#include "lcm/mbot_lcm_msgs_serial.h"
+#include "lcm/lcm_config.h"
+#include "lcm/comms_common.h"
 
 #define INCLUDE_vTaskDelay 1
 
 #define GPIO_RECV 3
 #define GPIO_SEND 2
-#define GPIO_MOSI 11
-#define GPIO_MISO 13
-#define GPIO_SCLK 12
 #define GPIO_CS 10
+#define GPIO_MOSI 11
+#define GPIO_SCLK 12
+#define GPIO_MISO 13
 
 #define ESPNOW_MAXDELAY (size_t) 0xffffffff
 
@@ -384,11 +388,8 @@ void my_post_trans_cb(spi_slave_transaction_t *trans)
 void send_task(void *args)
 {
     esp_err_t ret;
-    int n = 0;
     spi_slave_transaction_t t;
     client_espnow_event_t dat;
-    // TickType_t xLastWakeTime;
-
     while (1)
     {
         if (xQueueReceive(packet_send_queue, &dat, ESPNOW_MAXDELAY) != pdTRUE) 
@@ -396,34 +397,28 @@ void send_task(void *args)
             printf("Error receiving from queue\n");
             continue;
         }
-        // xLastWakeTime = xTaskGetTickCount();
         t.length = dat.info.recv_cb.data_len * 8;
         t.tx_buffer = dat.info.recv_cb.data;
         t.rx_buffer = NULL;
-        printf("Received packet. Waiting for lock...\n");
+
+        // printf("Received packet. Waiting for lock...\n");
         ret = spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
         if (ret != ESP_OK)
         {
             printf("Error transmitting: 0x%x\n", ret);
             continue;
         }
-        printf("Sent %zu bytes\n", t.trans_len / 8);
-        ++n;
-        // xTaskDelayUntil(&xLastWakeTime, 1000 / portTICK_PERIOD_MS);
+        // printf("Sent %zu bytes\n", t.trans_len / 8);
     }
 }
 
 void recv_task(void *args)
 {
     esp_err_t ret;
-    int n = 0;
-    WORD_ALIGNED_ATTR uint8_t recvbuf[84];
-
     spi_slave_transaction_t t;
-    // TickType_t xLastWakeTime;
+    WORD_ALIGNED_ATTR uint8_t recvbuf[84];
     while (1)
     {
-        // xLastWakeTime = xTaskGetTickCount();
         t.length = 84 * 8;
         t.tx_buffer = NULL;
         t.rx_buffer = recvbuf;
@@ -440,9 +435,6 @@ void recv_task(void *args)
             continue;
 
         // TODO: send t.tx_buffer over wifi
-
-        ++n;
-        // xTaskDelayUntil(&xLastWakeTime, 5 / portTICK_PERIOD_MS);
     }
 }
 
@@ -542,8 +534,8 @@ void app_main(void)
         return;
     }
 
-    xTaskCreatePinnedToCore(recv_task, "recv_task", 2048 * 4, NULL, 5, &recv_task_handle, 0);
-    xTaskCreatePinnedToCore(send_task, "send_task", 2048 * 4, NULL, 5, &send_task_handle, 1);
+    xTaskCreate(recv_task, "recv_task", 2048 * 4, NULL, 5, &recv_task_handle);
+    xTaskCreate(send_task, "send_task", 2048 * 4, NULL, 5, &send_task_handle);
 
     // Give semaphore to start SPI transmissions
     // xSemaphoreGive(spi_mutex);
