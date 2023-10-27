@@ -1,6 +1,0 @@
-[submodule "lib/esp-idf"]
-	path = lib/esp-idf
-	url = https://github.com/espressif/esp-idf
-[submodule "lib/mbot_lcm_base"]
-	path = lib/mbot_lcm_base
-	url = https://github.com/MBot-Project-Development/mbot_lcm_base.git

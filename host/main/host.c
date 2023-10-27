@@ -2,22 +2,21 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
-
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-
-#include "esp_log.h"
-#include "driver/spi_slave.h"
-#include "driver/gpio.h"
-
 #include <stdlib.h>
 #include <time.h>
 #include <string.h>
 #include <assert.h>
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "freertos/timers.h"
+
+#include "driver/spi_slave.h"
+#include "driver/gpio.h"
+#include "driver/adc.h"
 #include "driver/uart.h"
-#include "nvs_flash.h"
+
 #include "esp_random.h"
 #include "esp_event.h"
 #include "esp_netif.h"
@@ -25,16 +24,61 @@
 #include "esp_mac.h"
 #include "esp_now.h"
 #include "esp_crc.h"
+#include "esp_log.h"
+#include "esp_adc_cal.h"
+
+#include "nvs_flash.h"
 
 #include "host.h"
 
-#define ESPNOW_MAXDELAY 512
+#define ESPNOW_MAXDELAY (size_t) 0xffffffff
 
 static const char *TAG = "host";
 
+uint32_t switch_state;
+uint32_t last_button = 0;
+uint32_t last_press = 0;
+uint32_t last_switch = 0;
+
+bool mode = 1;
+TaskHandle_t serialMode;
+TaskHandle_t controllerMode;
+
+static QueueHandle_t gpio_evt_queue = NULL;
+static esp_adc_cal_characteristics_t adc1_chars;
 static QueueHandle_t s_host_espnow_queue;
 
 static void host_espnow_deinit(host_espnow_send_param_t *send_param);
+
+//ISR for a button press
+static void buttons_isr_handler(void* arg)
+{
+    uint32_t gpio_num = (uint32_t) arg;
+    uint32_t ticks = xTaskGetTickCount();
+    if ((gpio_num == last_button) && ((ticks - last_press) < 30)) return;
+    last_button = gpio_num;
+    last_press = ticks;
+    xQueueSendFromISR(gpio_evt_queue, &gpio_num, NULL);
+}
+
+//ISR for switch (change modes)
+static void switch_isr_handler(void* arg)
+{
+    uint32_t gpio_num = (uint32_t) arg;
+    uint32_t ticks = xTaskGetTickCount();
+    if ((ticks - last_switch) < 100) return;
+    last_switch = ticks;
+    if(mode) {
+        vTaskSuspend(serialMode);
+        vTaskResume(controllerMode);
+    }
+    else{
+        vTaskSuspend(controllerMode);
+        vTaskResume(serialMode);
+    }
+    mode = !mode;
+    xQueueSendFromISR(gpio_evt_queue, &gpio_num, NULL);
+}
 
 /* WiFi should start before using ESPNOW */
 static void host_wifi_init(void)
@@ -347,6 +391,34 @@ static void uart_in_task(void* arg) {
     ESP_LOGE(TAG, "Exited task uart_in_task loop");
 }
 
+//task to print the button causing the interrupt
+static void print_task(void* arg)
+{
+    uint32_t io_num;
+    for (;;) {
+        if (xQueueReceive(gpio_evt_queue, &io_num, portMAX_DELAY)) {
+            if (io_num == 9) printf("Button Up\n");
+            else if(io_num == 17) printf("Switch\n");
+            else printf("Button Down\n");
+        }
+    }
+}
+
+//task to read the values of a joystick
+void read_joystick_task(void* arg)
+{
+    uint32_t vertVoltage;
+    uint32_t horizVoltage;
+
+    while (1) 
+    {
+        vertVoltage = esp_adc_cal_raw_to_voltage(adc1_get_raw(ADC1_CHANNEL_3), &adc1_chars);
+        horizVoltage = esp_adc_cal_raw_to_voltage(adc1_get_raw(ADC1_CHANNEL_4), &adc1_chars);
+        printf("Horizontal Value: %ld mV\n", horizVoltage); 
+        printf("Vertical Value: %ld mV\n", vertVoltage);
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+}
 
 void  app_main() {
     esp_err_t ret = nvs_flash_init();
@@ -358,8 +430,58 @@ void  app_main() {
 
     host_wifi_init();
     host_espnow_send_param_t* send_param = host_espnow_init();
+
+    //configure the ADC
+    esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_DEFAULT, 0, &adc1_chars);
+
+    //check for failures
+    ESP_ERROR_CHECK(adc1_config_width(ADC_WIDTH_BIT_DEFAULT));
+    ESP_ERROR_CHECK(adc1_config_channel_atten(ADC1_CHANNEL_3, ADC_ATTEN_DB_11));
+
+    gpio_config_t GPIO = {};
+     //interrupt of rising edge (release button)
+    GPIO.intr_type = GPIO_INTR_POSEDGE;
+    //bit mask of the pins, use GPIO4/5 here
+    GPIO.pin_bit_mask = (0b1 << 9) | (0b1 << 10);
+    //set as input mode
+    GPIO.mode = GPIO_MODE_INPUT;
+    //enable pull-up mode
+    GPIO.pull_up_en = 1;
+    gpio_config(&GPIO);
+    //configure switch interrupt
+    GPIO.intr_type = GPIO_INTR_ANYEDGE;
+    //bit mask of the pins, use GPIO4/5 here
+    GPIO.pin_bit_mask = (0b1 << 17);
+    //set as input mode
+    GPIO.mode = GPIO_MODE_INPUT;
+    //enable pull-up mode
+    GPIO.pull_down_en = 1;
+    gpio_config(&GPIO);
+
+    //install gpio isr service
+    gpio_install_isr_service(0);
+
+    //create a queue to handle gpio event from isr
+    gpio_evt_queue = xQueueCreate(10, sizeof(uint32_t));
+
+    //hook isr handler for specific gpio pin
+    gpio_isr_handler_add(9, buttons_isr_handler, (void*) 9);
+    //hook isr handler for specific gpio pin
+    gpio_isr_handler_add(10, buttons_isr_handler, (void*) 10);
+    //hook isr handler for specific gpio pin
+    gpio_isr_handler_add(17, switch_isr_handler, (void*) 17);
+
+    //set the mode given the switch state
+    mode = (bool)gpio_get_level(17);
     
-    xTaskCreate(uart_in_task, "uart_in_task", 2048, send_param, 3, NULL);  
+    xTaskCreate(uart_in_task, "uart_in_task", 2048, send_param, 1, &serialMode);  
+    //make the print preempt the adc since it happens rarely
+    xTaskCreate(print_task, "print_task", 2048, NULL, 3, &controllerMode);
+    xTaskCreate(read_joystick_task, "read_joystick_task", 2048, NULL, 2, &controllerMode);
+
+    if(mode)  vTaskSuspend(serialMode);
+    else vTaskSuspend(controllerMode);
+    mode = !mode;
 }
 
 
