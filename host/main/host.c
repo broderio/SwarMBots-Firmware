@@ -455,6 +455,8 @@ void read_joystick_task(void* arg)
     vTaskSuspend(NULL);
     int vertVoltage;
     int horizVoltage;
+    //ADJUSTABLE
+    float max = 5;
     host_espnow_send_param_t *send_param = (host_espnow_send_param_t *)arg;
 
     while (1) 
@@ -469,13 +471,13 @@ void read_joystick_task(void* arg)
 
         
         //max out at 5 m/s
-        float vx = (abs(vertVoltage - joystick_v) > 300)? vertVoltage*0.001610:0;
-        float wz = (abs(horizVoltage - joystick_h) > 300)? horizVoltage*0.0322 - 5:0;
+        float vx = (abs(vertVoltage - joystick_v) > 100)? vertVoltage*(2.0*max)/3120.0 - max:0;
+        float wz = (abs(horizVoltage - joystick_h) > 100)? horizVoltage*(2.0*max)/3120.0 - max:0;
         printf("Forward Velocity: %f m/s\n", vx); 
-        printf("Turn Velocity: %f mV\n", wz);
+        printf("Turn Velocity: %f m/s\n", wz);
         send_to_client(send_param, command_serializer(vx, 0 ,wz), sizeof(serial_twist2D_t) + ROS_PKG_LEN);
         //printf("GPIO17: %d\n", gpio_get_level(17));
-        vTaskDelay(pdMS_TO_TICKS(500));
+        vTaskDelay(pdMS_TO_TICKS(200));
     }
 }
 
@@ -538,7 +540,6 @@ void  app_main() {
     for(int i = 0; i < 1000; ++i){
         joystick_v += esp_adc_cal_raw_to_voltage(adc1_get_raw(ADC1_CHANNEL_3), &adc1_chars);
         joystick_h += esp_adc_cal_raw_to_voltage(adc1_get_raw(ADC1_CHANNEL_4), &adc1_chars);
-        //vTaskDelay(pdMS_TO_TICKS(500));
     }
     //average of 1000 readings
     joystick_v = joystick_v/1000;
@@ -549,7 +550,7 @@ void  app_main() {
     xTaskCreate(uart_in_task, "uart_in_task", 2048, send_param, 1, &serialMode);  
     //make the print preempt the adc since it happens rarely
     xTaskCreate(print_task, "print_task", 2048, NULL, 3, &controllerMode);
-    xTaskCreate(read_joystick_task, "read_joystick_task", 2048, NULL, 2, &controllerMode);
+    xTaskCreate(read_joystick_task, "read_joystick_task", 2048, send_param, 2, &controllerMode);
 
     if(mode)  vTaskResume(serialMode);
     else vTaskResume(controllerMode);
