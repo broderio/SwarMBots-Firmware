@@ -28,6 +28,9 @@
 #include "esp_adc_cal.h"
 
 #include "nvs_flash.h"
+#include "mbot_lcm_msgs_serial.h"
+#include "mbot_params.h"
+#include "comms.h"
 
 #include "host.h"
 
@@ -39,6 +42,9 @@ uint32_t switch_state;
 uint32_t last_button = 0;
 uint32_t last_press = 0;
 uint32_t last_switch = 0;
+
+int joystick_v;
+int joystick_h;
 
 bool mode = 1;
 TaskHandle_t serialMode;
@@ -332,12 +338,52 @@ static void host_espnow_deinit(host_espnow_send_param_t *send_param)
     esp_now_deinit();
 }
 
+uint8_t* command_serializer(float vx, float vy, float wz){
+    serial_twist2D_t msg = {
+        .vx = vx,
+        .vy = vy,
+        .wz = wz
+    };
 
+    serial_mbot_motor_pwm_t pwm = {
+        .pwm = {0.50, 0.0, 0.50},
+        .utime = 0
+    };
+    
+    // Initialize variables for packet
+    size_t msg_len = sizeof(msg);
+    //size_t msg_len = sizeof(pwm);
+    uint8_t* msg_serialized = (uint8_t*)(malloc(msg_len));
+    uint8_t* packet = (uint8_t*)(malloc(msg_len + ROS_PKG_LEN));
+
+    // Serialize message and create packet
+    twist2D_t_serialize(&msg, msg_serialized);
+    //mbot_motor_pwm_t_serialize(&msg, msg_serialized);
+    encode_msg(msg_serialized, msg_len, MBOT_MOTOR_PWM_CMD, packet, msg_len + ROS_PKG_LEN);
+    free(msg_serialized);
+    return packet;
+}
+
+int send_to_client(host_espnow_send_param_t *send_param, uint8_t* data, int len){
+    //if read data, forward to client
+        if (len) {
+            host_espnow_data_prepare(send_param, data, len);
+
+            esp_err_t er = esp_now_send(send_param->dest_mac, send_param->buffer, send_param->len);
+            if (er != ESP_OK) {
+                ESP_LOGE(TAG, "Send error: %x", er);
+                return -1;
+            }
+        }
+    return 0;
+}
 //TODO: turn into 2 tasks with queue & interrupts for better mediation with computer
 static void uart_in_task(void* arg) {
+    vTaskSuspend(NULL);
 
     //recover send param for forwarding uart -> wifi
     host_espnow_send_param_t *send_param = (host_espnow_send_param_t *)arg;
+    //recover send param for forwarding uart -> wifi
 
     TickType_t xLastWakeTime = xTaskGetTickCount();
 
@@ -373,16 +419,9 @@ static void uart_in_task(void* arg) {
         // Read data from the UART
         int len = uart_read_bytes(0, data, ESPNOW_DATA_MAX_LEN, 20 / portTICK_PERIOD_MS);
         
-        //if read data, forward to client
-        if (len) {
-            host_espnow_data_prepare(send_param, data, len);
-
-            esp_err_t er = esp_now_send(send_param->dest_mac, send_param->buffer, send_param->len);
-            if (er != ESP_OK) {
-                ESP_LOGE(TAG, "Send error: %x", er);
-                free(data);
-                vTaskDelete(NULL);
-            }
+        if(send_to_client(send_param, data, len) == -1){
+            free(data);
+            vTaskDelete(NULL);
         }
 
         xTaskDelayUntil(&xLastWakeTime, 1);
@@ -394,11 +433,16 @@ static void uart_in_task(void* arg) {
 //task to print the button causing the interrupt
 static void print_task(void* arg)
 {
+    //suspend immediately until mode is determined
+    vTaskSuspend(NULL);
     uint32_t io_num;
     for (;;) {
         if (xQueueReceive(gpio_evt_queue, &io_num, portMAX_DELAY)) {
             if (io_num == 9) printf("Button Up\n");
-            else if(io_num == 17) printf("Switch\n");
+            else if(io_num == 17){
+                if (mode) printf("Controller Mode");
+                else printf("Serial Mode");
+            }
             else printf("Button Down\n");
         }
     }
@@ -407,15 +451,30 @@ static void print_task(void* arg)
 //task to read the values of a joystick
 void read_joystick_task(void* arg)
 {
-    uint32_t vertVoltage;
-    uint32_t horizVoltage;
+    //suspend immediately until mode is determined
+    vTaskSuspend(NULL);
+    int vertVoltage;
+    int horizVoltage;
+    host_espnow_send_param_t *send_param = (host_espnow_send_param_t *)arg;
 
     while (1) 
     {
+        if (send_param == NULL) {
+            ESP_LOGE(TAG, "Joystick task send param pointer lost");
+            vTaskDelete(NULL);
+        }
+
         vertVoltage = esp_adc_cal_raw_to_voltage(adc1_get_raw(ADC1_CHANNEL_3), &adc1_chars);
         horizVoltage = esp_adc_cal_raw_to_voltage(adc1_get_raw(ADC1_CHANNEL_4), &adc1_chars);
-        printf("Horizontal Value: %ld mV\n", horizVoltage); 
-        printf("Vertical Value: %ld mV\n", vertVoltage);
+
+        
+        //max out at 5 m/s
+        float vx = (abs(vertVoltage - joystick_v) > 300)? vertVoltage*0.001610:0;
+        float wz = (abs(horizVoltage - joystick_h) > 300)? horizVoltage*0.0322 - 5:0;
+        printf("Forward Velocity: %f m/s\n", vx); 
+        printf("Turn Velocity: %f mV\n", wz);
+        send_to_client(send_param, command_serializer(vx, 0 ,wz), sizeof(serial_twist2D_t) + ROS_PKG_LEN);
+        //printf("GPIO17: %d\n", gpio_get_level(17));
         vTaskDelay(pdMS_TO_TICKS(500));
     }
 }
@@ -473,15 +532,28 @@ void  app_main() {
 
     //set the mode given the switch state
     mode = (bool)gpio_get_level(17);
-    
+    mode = !mode;
+
+    //find the center of the joystick
+    for(int i = 0; i < 1000; ++i){
+        joystick_v += esp_adc_cal_raw_to_voltage(adc1_get_raw(ADC1_CHANNEL_3), &adc1_chars);
+        joystick_h += esp_adc_cal_raw_to_voltage(adc1_get_raw(ADC1_CHANNEL_4), &adc1_chars);
+        //vTaskDelay(pdMS_TO_TICKS(500));
+    }
+    //average of 1000 readings
+    joystick_v = joystick_v/1000;
+    joystick_h = joystick_h/1000;
+    printf("joystick_h: %d\n", joystick_h);
+    printf("joystick_v: %d\n", joystick_v);
+
     xTaskCreate(uart_in_task, "uart_in_task", 2048, send_param, 1, &serialMode);  
     //make the print preempt the adc since it happens rarely
     xTaskCreate(print_task, "print_task", 2048, NULL, 3, &controllerMode);
     xTaskCreate(read_joystick_task, "read_joystick_task", 2048, NULL, 2, &controllerMode);
 
-    if(mode)  vTaskSuspend(serialMode);
-    else vTaskSuspend(controllerMode);
-    mode = !mode;
+    if(mode)  vTaskResume(serialMode);
+    else vTaskResume(controllerMode);
+
 }
 
 
