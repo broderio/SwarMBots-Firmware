@@ -49,6 +49,7 @@ int joystick_h;
 bool mode = 1;
 TaskHandle_t serialMode;
 TaskHandle_t controllerMode;
+TaskHandle_t printT;
 
 static QueueHandle_t gpio_evt_queue = NULL;
 static esp_adc_cal_characteristics_t adc1_chars;
@@ -75,11 +76,17 @@ static void switch_isr_handler(void* arg)
     if ((ticks - last_switch) < 100) return;
     last_switch = ticks;
     if(mode) {
-        vTaskSuspend(serialMode);
+        gpio_isr_handler_add(9, buttons_isr_handler, (void*) 9);
+        gpio_isr_handler_add(10, buttons_isr_handler, (void*) 10);
         vTaskResume(controllerMode);
+        vTaskResume(printT);
+        vTaskSuspend(serialMode);
     }
     else{
+        gpio_isr_handler_remove(9);
+        gpio_isr_handler_remove(10);
         vTaskSuspend(controllerMode);
+        vTaskSuspend(printT);
         vTaskResume(serialMode);
     }
     mode = !mode;
@@ -344,22 +351,15 @@ uint8_t* command_serializer(float vx, float vy, float wz){
         .vy = vy,
         .wz = wz
     };
-
-    serial_mbot_motor_pwm_t pwm = {
-        .pwm = {0.50, 0.0, 0.50},
-        .utime = 0
-    };
     
     // Initialize variables for packet
     size_t msg_len = sizeof(msg);
-    //size_t msg_len = sizeof(pwm);
     uint8_t* msg_serialized = (uint8_t*)(malloc(msg_len));
     uint8_t* packet = (uint8_t*)(malloc(msg_len + ROS_PKG_LEN));
 
     // Serialize message and create packet
     twist2D_t_serialize(&msg, msg_serialized);
-    //mbot_motor_pwm_t_serialize(&msg, msg_serialized);
-    encode_msg(msg_serialized, msg_len, MBOT_MOTOR_PWM_CMD, packet, msg_len + ROS_PKG_LEN);
+    encode_msg(msg_serialized, msg_len, MBOT_VEL_CMD, packet, msg_len + ROS_PKG_LEN);
     free(msg_serialized);
     return packet;
 }
@@ -380,7 +380,8 @@ int send_to_client(host_espnow_send_param_t *send_param, uint8_t* data, int len)
 //TODO: turn into 2 tasks with queue & interrupts for better mediation with computer
 static void uart_in_task(void* arg) {
     vTaskSuspend(NULL);
-
+    gpio_isr_handler_remove(9);
+    gpio_isr_handler_remove(10);
     //recover send param for forwarding uart -> wifi
     host_espnow_send_param_t *send_param = (host_espnow_send_param_t *)arg;
     //recover send param for forwarding uart -> wifi
@@ -439,11 +440,7 @@ static void print_task(void* arg)
     for (;;) {
         if (xQueueReceive(gpio_evt_queue, &io_num, portMAX_DELAY)) {
             if (io_num == 9) printf("Button Up\n");
-            else if(io_num == 17){
-                if (mode) printf("Controller Mode");
-                else printf("Serial Mode");
-            }
-            else printf("Button Down\n");
+            else if(io_num == 10) printf("Button Down\n");
         }
     }
 }
@@ -472,9 +469,9 @@ void read_joystick_task(void* arg)
         
         //max out at 5 m/s
         float vx = (abs(vertVoltage - joystick_v) > 100)? vertVoltage*(2.0*max)/3120.0 - max:0;
-        float wz = (abs(horizVoltage - joystick_h) > 100)? horizVoltage*(2.0*max)/3120.0 - max:0;
-        printf("Forward Velocity: %f m/s\n", vx); 
-        printf("Turn Velocity: %f m/s\n", wz);
+        float wz = (abs(horizVoltage - joystick_h) > 100)? -horizVoltage*(2.0*max)/3120.0 + max:0;
+        //printf("Forward Velocity: %f m/s\n", vx); 
+        //printf("Turn Velocity: %f m/s\n", wz);
         send_to_client(send_param, command_serializer(vx, 0 ,wz), sizeof(serial_twist2D_t) + ROS_PKG_LEN);
         //printf("GPIO17: %d\n", gpio_get_level(17));
         vTaskDelay(pdMS_TO_TICKS(200));
@@ -549,11 +546,14 @@ void  app_main() {
 
     xTaskCreate(uart_in_task, "uart_in_task", 2048, send_param, 1, &serialMode);  
     //make the print preempt the adc since it happens rarely
-    xTaskCreate(print_task, "print_task", 2048, NULL, 3, &controllerMode);
+    xTaskCreate(print_task, "print_task", 2048, NULL, 3, &printT);
     xTaskCreate(read_joystick_task, "read_joystick_task", 2048, send_param, 2, &controllerMode);
 
     if(mode)  vTaskResume(serialMode);
-    else vTaskResume(controllerMode);
+    else {
+        vTaskResume(controllerMode);
+        vTaskResume(printT);
+    }
 
 }
 
