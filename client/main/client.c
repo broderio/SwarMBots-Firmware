@@ -10,9 +10,6 @@
 #include "driver/spi_slave.h"
 #include "driver/gpio.h"
 
-#include "comms_common.h"
-#include "lcm_config.h"
-
 #include <stdlib.h>
 #include <time.h>
 #include <string.h>
@@ -28,17 +25,21 @@
 #include "esp_mac.h"
 #include "esp_now.h"
 #include "esp_crc.h"
+#include <esp_timer.h>
 
 #include "client.h"
+#include "lcm/mbot_lcm_msgs_serial.h"
+#include "lcm/lcm_config.h"
+#include "lcm/comms_common.h"
 
 #define INCLUDE_vTaskDelay 1
 
 #define GPIO_RECV 3
 #define GPIO_SEND 2
-#define GPIO_MOSI 11
-#define GPIO_MISO 13
-#define GPIO_SCLK 12
 #define GPIO_CS 10
+#define GPIO_MOSI 11
+#define GPIO_SCLK 12
+#define GPIO_MISO 13
 
 #define ESPNOW_MAXDELAY (size_t) 0xffffffff
 
@@ -260,6 +261,7 @@ static void client_espnow_task(void *pvParameter)
 
                 recv_data[recv_len] = '\0'; // add null terminator since we'll be interpreting this as a string
                 dat.info.recv_cb.data = recv_data;
+                dat.info.recv_cb.data_len = recv_len;
                 ESP_LOGI(TAG, "Received data from Host: %s", (char *)recv_data);
                 if (xQueueSend(packet_send_queue, &dat, ESPNOW_MAXDELAY) != pdTRUE)
                 {
@@ -323,7 +325,7 @@ static esp_err_t client_espnow_init(void)
     peer->channel = ESPNOW_CHANNEL;
     peer->ifidx = ESPNOW_WIFI_IF;
     peer->encrypt = false;
-    memcpy(peer->peer_addr, s_host_mac, ESP_NOW_ETH_ALEN);
+    memcpy(peer->peer_addr, s_host_mac, ESP_NOW_ETH_ALEN); 
     ESP_ERROR_CHECK(esp_now_add_peer(peer));
     free(peer);
 
@@ -365,13 +367,11 @@ static void client_espnow_deinit(client_espnow_send_param_t *send_param)
     esp_now_deinit();
 }
 
-bool read_spi = false;
-SemaphoreHandle_t spi_mutex;
 
 // Called after a transaction is queued and ready for pickup by master. We use this to set the handshake line high.
 void my_post_setup_cb(spi_slave_transaction_t *trans)
 {
-    if (read_spi)
+    if (trans->tx_buffer == NULL)
         gpio_set_level(GPIO_RECV, 1);
     else
         gpio_set_level(GPIO_SEND, 1);
@@ -380,7 +380,7 @@ void my_post_setup_cb(spi_slave_transaction_t *trans)
 // Called after transaction is sent/received. We use this to set the handshake line low.
 void my_post_trans_cb(spi_slave_transaction_t *trans)
 {
-    if (read_spi)
+    if (trans->tx_buffer == NULL)
         gpio_set_level(GPIO_RECV, 0);
     else
         gpio_set_level(GPIO_SEND, 0);
@@ -389,11 +389,8 @@ void my_post_trans_cb(spi_slave_transaction_t *trans)
 void send_task(void *args)
 {
     esp_err_t ret;
-    int n = 0;
     spi_slave_transaction_t t;
     client_espnow_event_t dat;
-    // TickType_t xLastWakeTime;
-
     while (1)
     {
         if (xQueueReceive(packet_send_queue, &dat, ESPNOW_MAXDELAY) != pdTRUE) 
@@ -401,62 +398,44 @@ void send_task(void *args)
             printf("Error receiving from queue\n");
             continue;
         }
-        // xLastWakeTime = xTaskGetTickCount();
-        t.length = 84 * 8;
+        t.length = dat.info.recv_cb.data_len * 8;
         t.tx_buffer = dat.info.recv_cb.data;
         t.rx_buffer = NULL;
+
         printf("Received packet. Waiting for lock...\n");
-        if (xSemaphoreTake(spi_mutex, portMAX_DELAY) == pdTRUE)
+        ret = spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
+        if (ret != ESP_OK)
         {
-            read_spi = false;
-            ret = spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
-            xSemaphoreGive(spi_mutex);
-            if (ret != ESP_OK)
-            {
-                printf("Error transmitting: 0x%x\n", ret);
-                continue;
-            }
+            printf("Error transmitting: 0x%x\n", ret);
+            continue;
         }
         printf("Sent %zu bytes\n", t.trans_len / 8);
-        ++n;
-        // xTaskDelayUntil(&xLastWakeTime, 1000 / portTICK_PERIOD_MS);
     }
 }
 
 void recv_task(void *args)
 {
     esp_err_t ret;
-    int n = 0;
-    WORD_ALIGNED_ATTR uint8_t recvbuf[84];
-
     spi_slave_transaction_t t;
-    // TickType_t xLastWakeTime;
+    WORD_ALIGNED_ATTR uint8_t recvbuf[84];
     while (1)
     {
-        // xLastWakeTime = xTaskGetTickCount();
         t.length = 84 * 8;
         t.tx_buffer = NULL;
         t.rx_buffer = recvbuf;
 
-        if (xSemaphoreTake(spi_mutex, portMAX_DELAY) == pdTRUE)
+        printf("Waiting for packet...\n");
+        ret = spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
+        if (ret != ESP_OK)
         {
-            read_spi = true;
-            ret = spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
-            xSemaphoreGive(spi_mutex);
-            if (ret != ESP_OK)
-            {
-                printf("Error transmitting: 0x%x\n", ret);
-                continue;
-            }
+            printf("Error transmitting: 0x%x\n", ret);
+            continue;
         }
 
         if (t.trans_len > t.length)
             continue;
 
         // TODO: send t.tx_buffer over wifi
-
-        ++n;
-        // xTaskDelayUntil(&xLastWakeTime, 5 / portTICK_PERIOD_MS);
     }
 }
 
@@ -545,7 +524,6 @@ void app_main(void)
     client_spi_init();
 
     // Mutex for SPI transmissions
-    spi_mutex = xSemaphoreCreateMutex();
 
     // Create tasks
     TaskHandle_t recv_task_handle, send_task_handle;
@@ -557,8 +535,8 @@ void app_main(void)
         return;
     }
 
-    xTaskCreatePinnedToCore(recv_task, "recv_task", 2048 * 4, NULL, 5, &recv_task_handle, 0);
-    xTaskCreatePinnedToCore(send_task, "send_task", 2048 * 4, NULL, 5, &send_task_handle, 1);
+    xTaskCreate(recv_task, "recv_task", 2048 * 4, NULL, 5, &recv_task_handle);
+    xTaskCreate(send_task, "send_task", 2048 * 4, NULL, 5, &send_task_handle);
 
     // Give semaphore to start SPI transmissions
     // xSemaphoreGive(spi_mutex);
