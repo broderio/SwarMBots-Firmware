@@ -49,9 +49,9 @@ int joystick_h;
 bool mode = 1;
 TaskHandle_t serialMode;
 TaskHandle_t controllerMode;
-TaskHandle_t printT;
 
 static QueueHandle_t gpio_evt_queue = NULL;
+static QueueHandle_t uart_clear = NULL;
 static esp_adc_cal_characteristics_t adc1_chars;
 static QueueHandle_t s_host_espnow_queue;
 
@@ -79,14 +79,13 @@ static void switch_isr_handler(void* arg)
         gpio_isr_handler_add(9, buttons_isr_handler, (void*) 9);
         gpio_isr_handler_add(10, buttons_isr_handler, (void*) 10);
         vTaskResume(controllerMode);
-        vTaskResume(printT);
         vTaskSuspend(serialMode);
     }
     else{
+        xQueueSendFromISR(uart_clear, &gpio_num, NULL);
         gpio_isr_handler_remove(9);
         gpio_isr_handler_remove(10);
         vTaskSuspend(controllerMode);
-        vTaskSuspend(printT);
         vTaskResume(serialMode);
     }
     mode = !mode;
@@ -434,13 +433,15 @@ static void uart_in_task(void* arg) {
 //task to print the button causing the interrupt
 static void print_task(void* arg)
 {
-    //suspend immediately until mode is determined
-    vTaskSuspend(NULL);
     uint32_t io_num;
     for (;;) {
         if (xQueueReceive(gpio_evt_queue, &io_num, portMAX_DELAY)) {
             if (io_num == 9) printf("Button Up\n");
             else if(io_num == 10) printf("Button Down\n");
+            else{
+                if (!mode) printf("Controller mode\n");
+                else printf("Serial Mode\n");
+            }
         }
     }
 }
@@ -453,13 +454,14 @@ void read_joystick_task(void* arg)
     int vertVoltage;
     int horizVoltage;
     //ADJUSTABLE
-    float max = 5;
+    float max = 1.5;
     host_espnow_send_param_t *send_param = (host_espnow_send_param_t *)arg;
 
     while (1) 
     {
+        //uart_flush(0);
         if (send_param == NULL) {
-            ESP_LOGE(TAG, "Joystick task send param pointer lost");
+            ESP_LOGE(TAG, "Joystick task send param pointer lost\n");
             vTaskDelete(NULL);
         }
 
@@ -468,8 +470,8 @@ void read_joystick_task(void* arg)
 
         
         //max out at 5 m/s
-        float vx = (abs(vertVoltage - joystick_v) > 100)? vertVoltage*(2.0*max)/3120.0 - max:0;
-        float wz = (abs(horizVoltage - joystick_h) > 100)? -horizVoltage*(2.0*max)/3120.0 + max:0;
+        float vx = (abs(vertVoltage - joystick_v) > 50)? vertVoltage*(2.0*max)/3120.0 - max:0;
+        float wz = (abs(horizVoltage - joystick_h) > 50)? -horizVoltage*(12.0*max)/3120.0 + 6*max:0;
         //printf("Forward Velocity: %f m/s\n", vx); 
         //printf("Turn Velocity: %f m/s\n", wz);
         send_to_client(send_param, command_serializer(vx, 0 ,wz), sizeof(serial_twist2D_t) + ROS_PKG_LEN);
@@ -521,7 +523,7 @@ void  app_main() {
 
     //create a queue to handle gpio event from isr
     gpio_evt_queue = xQueueCreate(10, sizeof(uint32_t));
-
+    uart_clear = xQueueCreate(10, sizeof(uint32_t));
     //hook isr handler for specific gpio pin
     gpio_isr_handler_add(9, buttons_isr_handler, (void*) 9);
     //hook isr handler for specific gpio pin
@@ -541,19 +543,16 @@ void  app_main() {
     //average of 1000 readings
     joystick_v = joystick_v/1000;
     joystick_h = joystick_h/1000;
-    printf("joystick_h: %d\n", joystick_h);
-    printf("joystick_v: %d\n", joystick_v);
+
 
     xTaskCreate(uart_in_task, "uart_in_task", 2048, send_param, 1, &serialMode);  
     //make the print preempt the adc since it happens rarely
-    xTaskCreate(print_task, "print_task", 2048, NULL, 3, &printT);
-    xTaskCreate(read_joystick_task, "read_joystick_task", 2048, send_param, 2, &controllerMode);
+    xTaskCreate(read_joystick_task, "read_joystick_task", 2048, send_param, 1, &controllerMode);
+    //for debugging 
+    xTaskCreate(print_task, "print_task", 2048, NULL, 3, NULL);
 
     if(mode)  vTaskResume(serialMode);
-    else {
-        vTaskResume(controllerMode);
-        vTaskResume(printT);
-    }
+    else vTaskResume(controllerMode);
 
 }
 
