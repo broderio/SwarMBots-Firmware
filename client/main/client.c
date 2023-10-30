@@ -2,20 +2,19 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
-
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-
-#include "esp_log.h"
-#include "driver/spi_slave.h"
-#include "driver/gpio.h"
-
 #include <stdlib.h>
 #include <time.h>
 #include <string.h>
 #include <assert.h>
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "freertos/timers.h"
+
+#include "esp_log.h"
+#include "driver/spi_slave.h"
+#include "driver/gpio.h"
 #include "nvs_flash.h"
 #include "esp_random.h"
 #include "esp_event.h"
@@ -29,8 +28,7 @@
 
 #include "client.h"
 #include "lcm/mbot_lcm_msgs_serial.h"
-#include "lcm/lcm_config.h"
-#include "lcm/comms_common.h"
+#include "lcm/comms.h"
 
 #define INCLUDE_vTaskDelay 1
 

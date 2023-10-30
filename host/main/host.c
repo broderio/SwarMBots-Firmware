@@ -17,6 +17,7 @@
 #include "driver/adc.h"
 #include "driver/uart.h"
 
+#include "nvs_flash.h"
 #include "esp_random.h"
 #include "esp_event.h"
 #include "esp_netif.h"
@@ -27,12 +28,10 @@
 #include "esp_log.h"
 #include "esp_adc_cal.h"
 
-#include "nvs_flash.h"
-#include "mbot_lcm_msgs_serial.h"
-#include "mbot_params.h"
-#include "comms.h"
-
 #include "host.h"
+#include "mbot_params.h"
+#include "lcm/mbot_lcm_msgs_serial.h"
+#include "lcm/comms.h"
 
 #define ESPNOW_MAXDELAY (size_t) 0xffffffff
 
