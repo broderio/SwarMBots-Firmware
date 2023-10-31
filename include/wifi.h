@@ -19,10 +19,11 @@
 #define ESPNOW_QUEUE_SIZE           6
 #define ESP_NOW_ETH_ALEN            6                   //length of MAC address
 
-#define IS_BROADCAST_ADDR(addr) (memcmp(addr, s_mac, ESP_NOW_ETH_ALEN) == 0)
+static uint8_t s_host_mac[ESP_NOW_ETH_ALEN] = {0xF4, 0x12, 0xFA, 0xFA, 0x11, 0xe1};
+#define IS_BROADCAST_ADDR(addr) (memcmp(addr, s_host_mac, ESP_NOW_ETH_ALEN) == 0)
 
+const char *TAG = "WIFI";
 static QueueHandle_t device_to_host_queue;
-static QueueHandle_t host_to_device_queue;
 
 typedef enum {
     ESPNOW_SEND_CB,
@@ -67,15 +68,14 @@ typedef struct {
 } espnow_send_param_t;
 
 
-// static void espnow_deinit(espnow_send_param_t *send_param);
+static void espnow_deinit(espnow_send_param_t *send_param);
 static void wifi_init(void);
-// static void espnow_send_cb(const uint8_t *mac_addr, esp_now_send_status_t status);
-// static void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len);
-// int espnow_data_parse(uint8_t *data, uint16_t data_len, uint8_t *msg, int *len);
-// void espnow_data_prepare(espnow_send_param_t *send_param, uint8_t *data, int len);
-static void espnow_task(void *pvParameter);
-static esp_err_t espnow_init(void);
-// static void espnow_deinit(espnow_send_param_t *send_param);
+static void espnow_send_cb(const uint8_t *mac_addr, esp_now_send_status_t status);
+static void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len);
+int espnow_data_parse(uint8_t *data, uint16_t data_len, uint8_t *msg, int *len);
+void espnow_data_prepare(espnow_send_param_t *send_param, uint8_t *data, int len);
+static esp_err_t espnow_init(espnow_send_param_t *send_param);
+static void espnow_deinit(espnow_send_param_t *send_param);
 
 /* WiFi should start before using ESPNOW */
 static void wifi_init(void)
@@ -135,6 +135,7 @@ static void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *
         ESP_LOGE(TAG, "Malloc receive data fail");
         return;
     }
+
     memcpy(recv_cb->data, data, len);
     recv_cb->data_len = len;
     if (xQueueSend(device_to_host_queue, &evt, ESPNOW_MAXDELAY) != pdTRUE)
@@ -199,136 +200,8 @@ void espnow_data_prepare(espnow_send_param_t *send_param, uint8_t *data, int len
     buf->crc = esp_crc16_le(UINT16_MAX, (uint8_t const *)buf, send_param->len); // compute checksum to send with packet
 }
 
-static void espnow_task(void *pvParameter)
+static esp_err_t espnow_init(espnow_send_param_t *send_param)
 {
-    // set important variables
-    espnow_event_t evt;
-    espnow_event_t dat;
-    uint8_t recv_data[ESPNOW_DATA_MAX_LEN + 1];
-    int recv_len;
-    int ret;
-    // bool hasRecv = false;
-    recv_data[0] = '\0';
-    // wait 5 seconds
-    vTaskDelay(5000 / portTICK_PERIOD_MS);
-    ESP_LOGI(TAG, "Start sending broadcast data");
-
-    // recover send param
-    espnow_send_param_t *send_param = (espnow_send_param_t *)pvParameter;
-
-    // send empty message to start comms
-    espnow_data_prepare(send_param, NULL, 0);
-    esp_err_t er = esp_now_send(send_param->dest_mac, send_param->buffer, send_param->len);
-    if (er != ESP_OK)
-    {
-        ESP_LOGE(TAG, "Send error: %d", er);
-        espnow_deinit(send_param);
-        vTaskDelete(NULL);
-    }
-
-    // wait for response on repeat
-    while (xQueueReceive(device_to_host_queue, &evt, portMAX_DELAY) == pdTRUE)
-    {
-        switch (evt.id)
-        {
-        // send was (or wasn't) received
-        case ESPNOW_SEND_CB:
-        {
-            // espnow_event_send_cb_t *send_cb = &evt.info.send_cb;
-
-            // if (!hasRecv) {
-
-            //     ESP_LOGI(TAG, "Resending broadcast data");
-
-            //     //send empty message to start comms
-            //     esp_err_t er = esp_now_send(send_param->dest_mac, send_param->buffer, 1);
-            //     if (er != ESP_OK) {
-            //         ESP_LOGE(TAG, "Send error: %d", er);
-            //         espnow_deinit(send_param);
-            //         vTaskDelete(NULL);
-            //     }
-            // }
-            // don't need to do anything after a successful send
-
-            break;
-        }
-        case ESPNOW_RECV_CB:
-        {
-            espnow_event_recv_cb_t *recv_cb = &evt.info.recv_cb;
-            ret = espnow_data_parse(recv_cb->data, recv_cb->data_len, recv_data, &recv_len);
-
-            free(recv_cb->data); // free data field allocated in receive callback function
-
-            if (ret == 0)
-            {
-                /* If MAC address does not exist in peer list, add it to peer list and begin sending it messages*/
-                if (esp_now_is_peer_exist(recv_cb->mac_addr) == false)
-                {
-                    // add peer
-                    esp_now_peer_info_t *peer = malloc(sizeof(esp_now_peer_info_t));
-                    if (peer == NULL)
-                    {
-                        ESP_LOGE(TAG, "Malloc peer information fail");
-                        espnow_deinit(send_param);
-                        vTaskDelete(NULL);
-                    }
-                    memset(peer, 0, sizeof(esp_now_peer_info_t));
-                    peer->channel = ESPNOW_CHANNEL;
-                    peer->ifidx = ESPNOW_WIFI_IF;
-                    peer->encrypt = false;
-                    memcpy(peer->peer_addr, recv_cb->mac_addr, ESP_NOW_ETH_ALEN);
-                    ESP_ERROR_CHECK(esp_now_add_peer(peer));
-                    free(peer);
-
-                    ESP_LOGI(TAG, "Received comm from unknown device. Saving as a peer.");
-                }
-
-                // ================= Do Work With Received Data =================
-
-                recv_data[recv_len] = '\0'; // add null terminator since we'll be interpreting this as a string
-                dat.info.recv_cb.data = recv_data;
-                dat.info.recv_cb.data_len = recv_len;
-                ESP_LOGI(TAG, "Received data from Host: %s", (char *)recv_data);
-                if (xQueueSend(host_to_device_queue, &dat, ESPNOW_MAXDELAY) != pdTRUE)
-                {
-                    ESP_LOGW(TAG, "Send queue fail");
-                }
-
-                espnow_data_prepare(send_param, (uint8_t *)"Ack", 3);
-
-                esp_err_t er = esp_now_send(send_param->dest_mac, send_param->buffer, send_param->len);
-                if (er != ESP_OK)
-                {
-                    ESP_LOGE(TAG, "Send error: %d", er);
-                    espnow_deinit(send_param);
-                    vTaskDelete(NULL);
-                }
-
-                // =================== End Received Data Work ===================
-            }
-            else
-            {
-                ESP_LOGI(TAG, "Receive error data from: " MACSTR "", MAC2STR(recv_cb->mac_addr));
-            }
-            break;
-        }
-        default:
-            ESP_LOGE(TAG, "Callback type error: %d", evt.id);
-            break;
-        }
-    }
-}
-
-static esp_err_t espnow_init(void)
-{
-
-    // queue semaphore of espnow requests to handle with task
-    device_to_host_queue = xQueueCreate(ESPNOW_QUEUE_SIZE, sizeof(espnow_event_t));
-    if (device_to_host_queue == NULL)
-    {
-        ESP_LOGE(TAG, "Create mutex fail");
-        return ESP_FAIL;
-    }
 
     // queue semaphore of espnow requests to handle with task
     device_to_host_queue = xQueueCreate(ESPNOW_QUEUE_SIZE, sizeof(espnow_event_t));
@@ -347,6 +220,8 @@ static esp_err_t espnow_init(void)
     ESP_ERROR_CHECK(esp_now_set_pmk((uint8_t *)ESPNOW_PMK));
 
     /* Add broadcast peer information to peer list. */
+    // TODO: move this to client.c and host.c to specify which devices to connect to
+    //       current implementation will try to connect the host to itself
     esp_now_peer_info_t *peer = malloc(sizeof(esp_now_peer_info_t));
     if (peer == NULL)
     {
@@ -362,9 +237,6 @@ static esp_err_t espnow_init(void)
     memcpy(peer->peer_addr, s_host_mac, ESP_NOW_ETH_ALEN); 
     ESP_ERROR_CHECK(esp_now_add_peer(peer));
     free(peer);
-
-    /* Initialize info about data to send. */
-    espnow_send_param_t *send_param;
 
     send_param = malloc(sizeof(espnow_send_param_t));
     if (send_param == NULL)
@@ -386,9 +258,6 @@ static esp_err_t espnow_init(void)
         return ESP_FAIL;
     }
     memcpy(send_param->dest_mac, s_host_mac, ESP_NOW_ETH_ALEN);
-
-    xTaskCreate(espnow_task, "espnow_task", 4096, send_param, 4, NULL);
-
     return ESP_OK;
 }
 
