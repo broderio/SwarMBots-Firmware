@@ -38,15 +38,15 @@
 
 static const char *TAG = "host";
 
-uint32_t switch_state;
-uint32_t last_button = 0;
-uint32_t last_press = 0;
-uint32_t last_switch = 0;
+static uint32_t switch_state;
+static uint32_t last_button = 0;
+static uint32_t last_press = 0;
+static uint32_t last_switch = 0;
 
-int joystick_v;
-int joystick_h;
+static int joystick_v;
+static int joystick_h;
 
-bool mode = 1;
+static bool mode = 1;
 TaskHandle_t serialMode;
 TaskHandle_t controllerMode;
 
@@ -55,9 +55,9 @@ static QueueHandle_t uart_clear = NULL;
 static esp_adc_cal_characteristics_t adc1_chars;
 static QueueHandle_t s_host_espnow_queue;
 
-static void host_espnow_deinit(host_espnow_send_param_t *send_param);
+static int peerNum = 0;
 
-TickType_t ttime;
+static void host_espnow_deinit(host_espnow_send_param_t *send_param);
 
 //ISR for a button press
 static void buttons_isr_handler(void* arg)
@@ -130,6 +130,7 @@ static void host_espnow_send_cb(const uint8_t *mac_addr, esp_now_send_status_t s
     }
 }
 
+//TODO: add logic to delegate new connections to one task and standard messages to another
 static void host_espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len)
 {
     host_espnow_event_t evt;
@@ -228,6 +229,7 @@ static void host_espnow_task(void *pvParameter)
     //recover send param
     host_espnow_send_param_t *send_param = (host_espnow_send_param_t *)pvParameter;
 
+    //TODO: reformat to where host sends then waits a set time for a response
     //wait for response on repeat
     while (xQueueReceive(s_host_espnow_queue, &evt, portMAX_DELAY) == pdTRUE) {
         switch (evt.id) {
@@ -247,11 +249,24 @@ static void host_espnow_task(void *pvParameter)
 
                 free(recv_cb->data); //free data field allocated in receive callback function
 
+                if (peerNum > 0 && !mode) {
+                    esp_now_peer_info_t *peer = malloc(sizeof(esp_now_peer_info_t));
+                    if (peer == NULL) {
+                        ESP_LOGE(TAG, "Malloc peer information fail");
+                        host_espnow_deinit(send_param);
+                        vTaskDelete(NULL);
+                    }
+                    memset(peer, 0, sizeof(esp_now_peer_info_t));
+                    ESP_ERROR_CHECK( esp_now_fetch_peer(false, peer) );
+                    memcpy(send_param->dest_mac, recv_cb->mac_addr, ESP_NOW_ETH_ALEN);
+                    free(peer);
+                }
+
                 if (ret == 0) {
 
                     /* If MAC address does not exist in peer list, add it to peer list and begin sending it messages*/
                     if (esp_now_is_peer_exist(recv_cb->mac_addr) == false) {
-                        ESP_LOGI(TAG, "Received first data from Client");
+                        ESP_LOGI(TAG, "Received first data from a Client");
 
                         //add peer
                         esp_now_peer_info_t *peer = malloc(sizeof(esp_now_peer_info_t));
@@ -268,16 +283,13 @@ static void host_espnow_task(void *pvParameter)
                         ESP_ERROR_CHECK( esp_now_add_peer(peer) );
                         free(peer);
 
-                        memcpy(send_param->dest_mac, recv_cb->mac_addr, ESP_NOW_ETH_ALEN);
+                        peerNum++;
                     }
                     else {
                         //measured rtt around 9ms with host tick rate at 1000Hz and client at 100Hz
                         //forward to computer
                         recv_data[recv_len] = '\n';
-                        //uart_write_bytes(UART_PORT_NUM, (const char *) recv_data, recv_len+1);
-
-                        ttime = xTaskGetTickCount() - ttime;
-                        ESP_LOGI(TAG, "approx RTT (to nearest 10ms): %lu ms", ttime * portTICK_PERIOD_MS);
+                        uart_write_bytes(UART_PORT_NUM, (const char *) recv_data, recv_len+1);
 
                     }
 
@@ -372,8 +384,7 @@ int send_to_client(host_espnow_send_param_t *send_param, uint8_t* data, int len)
     //if read data, forward to client
         if (len) {
             host_espnow_data_prepare(send_param, data, len);
-
-            ttime = xTaskGetTickCount();
+            
             esp_err_t er = esp_now_send(send_param->dest_mac, send_param->buffer, send_param->len);
             if (er != ESP_OK) {
                 ESP_LOGE(TAG, "Send error: %x", er);

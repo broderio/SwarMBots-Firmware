@@ -6,7 +6,7 @@
 
 #define ESPNOW_CHANNEL          1                   //wifi channel - LEGAL: use only 1, 6, or 11 for FCC compliance & reliability
 #define ESPNOW_PMK              "pmk1234567890123"  //primary master key
-#define ESPNOW_DATA_MAX_LEN     100                 //max size of packet payload
+#define ESPNOW_DATA_MAX_LEN     250                 //max size of packet payload
 
 #define ESPNOW_QUEUE_SIZE       6
 
