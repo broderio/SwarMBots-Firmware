@@ -258,7 +258,7 @@ static void host_espnow_task(void *pvParameter)
                     }
                     memset(peer, 0, sizeof(esp_now_peer_info_t));
                     ESP_ERROR_CHECK( esp_now_fetch_peer(false, peer) );
-                    memcpy(send_param->dest_mac, recv_cb->mac_addr, ESP_NOW_ETH_ALEN);
+                    memcpy(send_param->dest_mac, peer->peer_addr, ESP_NOW_ETH_ALEN);
                     free(peer);
                 }
 
