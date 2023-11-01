@@ -1,3 +1,6 @@
+#ifndef WIFI_H
+#define WIFI_H
+
 #define ESPNOW_WIFI_MODE WIFI_MODE_AP
 #define ESPNOW_WIFI_IF   ESP_IF_WIFI_AP
 
@@ -269,3 +272,5 @@ static void espnow_deinit(espnow_send_param_t *send_param)
     vSemaphoreDelete(espnow_queue);
     esp_now_deinit();
 }
+
+#endif
