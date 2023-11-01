@@ -31,9 +31,6 @@
 #include "lcm/mbot_lcm_msgs_serial.h"
 #include "lcm/comms.h"
 
-static QueueHandle_t s_client_espnow_queue;
-static QueueHandle_t packet_send_queue;
-
 static void client_espnow_task(void *pvParameter)
 {
     // set important variables
@@ -62,7 +59,7 @@ static void client_espnow_task(void *pvParameter)
     }
 
     // wait for response on repeat
-    while (xQueueReceive(s_client_espnow_queue, &evt, portMAX_DELAY) == pdTRUE)
+    while (xQueueReceive(espnow_queue, &evt, portMAX_DELAY) == pdTRUE)
     {
         switch (evt.id)
         {
@@ -124,7 +121,7 @@ static void client_espnow_task(void *pvParameter)
                 dat.info.recv_cb.data = recv_data;
                 dat.info.recv_cb.data_len = recv_len;
                 ESP_LOGI(TAG, "Received data from Host: %s", (char *)recv_data);
-                if (xQueueSend(packet_send_queue, &dat, ESPNOW_MAXDELAY) != pdTRUE)
+                if (xQueueSend(spi_send_queue, &dat, ESPNOW_MAXDELAY) != pdTRUE)
                 {
                     ESP_LOGW(TAG, "Send queue fail");
                 }
@@ -179,7 +176,7 @@ void send_task(void *args)
     espnow_event_t dat;
     while (1)
     {
-        if (xQueueReceive(packet_send_queue, &dat, ESPNOW_MAXDELAY) != pdTRUE) 
+        if (xQueueReceive(spi_send_queue, &dat, ESPNOW_MAXDELAY) != pdTRUE) 
         {
             printf("Error receiving from queue\n");
             continue;
@@ -210,7 +207,7 @@ void recv_task(void *args)
         t.tx_buffer = NULL;
         t.rx_buffer = recvbuf;
 
-        printf("Waiting for packet...\n");
+        //printf("Waiting for packet...\n");
         ret = spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
         if (ret != ESP_OK)
         {
@@ -305,8 +302,12 @@ void app_main(void)
 
     printf("Initializing ESP-NOW...\n");
 
-    espnow_send_param_t send_param;
-    espnow_init(&send_param);
+    espnow_send_param_t* send_param;
+    send_param = espnow_init();
+    if (send_param == NULL){
+        ESP_LOGI(TAG, "Send param allocation failed");
+        return;
+    }
 
     printf("Initializing SPI...\n");
     spi_init();
@@ -314,14 +315,14 @@ void app_main(void)
     // Create tasks
     TaskHandle_t recv_task_handle, send_task_handle;
 
-    packet_send_queue = xQueueCreate(ESPNOW_QUEUE_SIZE, sizeof(espnow_event_t));
-    if (packet_send_queue == NULL)
+    spi_send_queue = xQueueCreate(ESPNOW_QUEUE_SIZE, sizeof(espnow_event_t));
+    if (spi_send_queue == NULL)
     {
         ESP_LOGE(TAG, "Failed to create mutex.");
         return;
     }
 
-    xTaskCreate(client_espnow_task, "host_espnow_task", 4096, (void*)&send_param, 4, NULL);
+    xTaskCreate(client_espnow_task, "host_espnow_task", 4096, (void*)send_param, 4, NULL);
     xTaskCreate(recv_task, "recv_task", 2048 * 4, NULL, 5, &recv_task_handle);
     xTaskCreate(send_task, "send_task", 2048 * 4, NULL, 5, &send_task_handle);
 }

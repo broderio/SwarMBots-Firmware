@@ -18,12 +18,12 @@
 #define ESPNOW_MAXDELAY             (size_t)0xffffffff
 #define ESPNOW_QUEUE_SIZE           6
 #define ESP_NOW_ETH_ALEN            6                   //length of MAC address
-
 static uint8_t s_host_mac[ESP_NOW_ETH_ALEN] = {0xF4, 0x12, 0xFA, 0xFA, 0x11, 0xe1};
 #define IS_BROADCAST_ADDR(addr) (memcmp(addr, s_host_mac, ESP_NOW_ETH_ALEN) == 0)
 
 const char *TAG = "WIFI";
-static QueueHandle_t device_to_host_queue;
+static QueueHandle_t espnow_queue;
+static QueueHandle_t spi_send_queue;
 
 typedef enum {
     ESPNOW_SEND_CB,
@@ -74,7 +74,7 @@ static void espnow_send_cb(const uint8_t *mac_addr, esp_now_send_status_t status
 static void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len);
 int espnow_data_parse(uint8_t *data, uint16_t data_len, uint8_t *msg, int *len);
 void espnow_data_prepare(espnow_send_param_t *send_param, uint8_t *data, int len);
-static esp_err_t espnow_init(espnow_send_param_t *send_param);
+static espnow_send_param_t* espnow_init(void);
 static void espnow_deinit(espnow_send_param_t *send_param);
 
 /* WiFi should start before using ESPNOW */
@@ -109,7 +109,7 @@ static void espnow_send_cb(const uint8_t *mac_addr, esp_now_send_status_t status
     evt.id = ESPNOW_SEND_CB;
     memcpy(send_cb->mac_addr, mac_addr, ESP_NOW_ETH_ALEN);
     send_cb->status = status;
-    if (xQueueSend(device_to_host_queue, &evt, ESPNOW_MAXDELAY) != pdTRUE)
+    if (xQueueSend(espnow_queue, &evt, ESPNOW_MAXDELAY) != pdTRUE)
     {
         ESP_LOGW(TAG, "Send send queue fail");
     }
@@ -138,7 +138,7 @@ static void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *
 
     memcpy(recv_cb->data, data, len);
     recv_cb->data_len = len;
-    if (xQueueSend(device_to_host_queue, &evt, ESPNOW_MAXDELAY) != pdTRUE)
+    if (xQueueSend(espnow_queue, &evt, ESPNOW_MAXDELAY) != pdTRUE)
     {
         ESP_LOGW(TAG, "Send receive queue fail");
         free(recv_cb->data);
@@ -200,15 +200,15 @@ void espnow_data_prepare(espnow_send_param_t *send_param, uint8_t *data, int len
     buf->crc = esp_crc16_le(UINT16_MAX, (uint8_t const *)buf, send_param->len); // compute checksum to send with packet
 }
 
-static esp_err_t espnow_init(espnow_send_param_t *send_param)
+static espnow_send_param_t* espnow_init(void)
 {
-
+    espnow_send_param_t* send_param;
     // queue semaphore of espnow requests to handle with task
-    device_to_host_queue = xQueueCreate(ESPNOW_QUEUE_SIZE, sizeof(espnow_event_t));
-    if (device_to_host_queue == NULL)
+    espnow_queue = xQueueCreate(ESPNOW_QUEUE_SIZE, sizeof(espnow_event_t));
+    if (espnow_queue == NULL)
     {
         ESP_LOGE(TAG, "Create mutex fail");
-        return ESP_FAIL;
+        return NULL;
     }
 
     /* Initialize ESPNOW and register sending and receiving callback function. */
@@ -226,9 +226,9 @@ static esp_err_t espnow_init(espnow_send_param_t *send_param)
     if (peer == NULL)
     {
         ESP_LOGE(TAG, "Malloc peer information fail");
-        vSemaphoreDelete(device_to_host_queue);
+        vSemaphoreDelete(espnow_queue);
         esp_now_deinit();
-        return ESP_FAIL;
+        return NULL;
     }
     memset(peer, 0, sizeof(esp_now_peer_info_t));
     peer->channel = ESPNOW_CHANNEL;
@@ -242,9 +242,9 @@ static esp_err_t espnow_init(espnow_send_param_t *send_param)
     if (send_param == NULL)
     {
         ESP_LOGE(TAG, "Malloc send parameter fail");
-        vSemaphoreDelete(device_to_host_queue);
+        vSemaphoreDelete(espnow_queue);
         esp_now_deinit();
-        return ESP_FAIL;
+        return NULL;
     }
     memset(send_param, 0, sizeof(espnow_send_param_t));
     send_param->len = 0;
@@ -253,12 +253,12 @@ static esp_err_t espnow_init(espnow_send_param_t *send_param)
     {
         ESP_LOGE(TAG, "Malloc send buffer fail");
         free(send_param);
-        vSemaphoreDelete(device_to_host_queue);
+        vSemaphoreDelete(espnow_queue);
         esp_now_deinit();
-        return ESP_FAIL;
+        return NULL;
     }
     memcpy(send_param->dest_mac, s_host_mac, ESP_NOW_ETH_ALEN);
-    return ESP_OK;
+    return send_param;
 }
 
 // handles error by cleaning up param and deinitializing wifi
@@ -266,6 +266,6 @@ static void espnow_deinit(espnow_send_param_t *send_param)
 {
     free(send_param->buffer);
     free(send_param);
-    vSemaphoreDelete(device_to_host_queue);
+    vSemaphoreDelete(espnow_queue);
     esp_now_deinit();
 }
