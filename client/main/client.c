@@ -47,7 +47,8 @@ static const char *TAG = "client";
 
 static QueueHandle_t s_client_espnow_queue;
 static QueueHandle_t packet_send_queue;
-static uint8_t s_host_mac[ESP_NOW_ETH_ALEN] = {0xF4, 0x12, 0xFA, 0xFA, 0x11, 0xe1};
+//static uint8_t s_host_mac[ESP_NOW_ETH_ALEN] = {0xF4, 0x12, 0xFA, 0xFA, 0x11, 0xe1};
+static uint8_t s_host_mac[ESP_NOW_ETH_ALEN] = {0xf4, 0x12, 0xfa, 0xfa, 0x11, 0x15};
 
 static void client_espnow_deinit(client_espnow_send_param_t *send_param);
 

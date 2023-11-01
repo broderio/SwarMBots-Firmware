@@ -57,6 +57,8 @@ static QueueHandle_t s_host_espnow_queue;
 
 static void host_espnow_deinit(host_espnow_send_param_t *send_param);
 
+TickType_t ttime;
+
 //ISR for a button press
 static void buttons_isr_handler(void* arg)
 {
@@ -269,10 +271,13 @@ static void host_espnow_task(void *pvParameter)
                         memcpy(send_param->dest_mac, recv_cb->mac_addr, ESP_NOW_ETH_ALEN);
                     }
                     else {
-
+                        //measured rtt around 9ms with host tick rate at 1000Hz and client at 100Hz
                         //forward to computer
                         recv_data[recv_len] = '\n';
-                        uart_write_bytes(UART_PORT_NUM, (const char *) recv_data, recv_len+1);
+                        //uart_write_bytes(UART_PORT_NUM, (const char *) recv_data, recv_len+1);
+
+                        ttime = xTaskGetTickCount() - ttime;
+                        ESP_LOGI(TAG, "approx RTT (to nearest 10ms): %lu ms", ttime * portTICK_PERIOD_MS);
 
                     }
 
@@ -368,6 +373,7 @@ int send_to_client(host_espnow_send_param_t *send_param, uint8_t* data, int len)
         if (len) {
             host_espnow_data_prepare(send_param, data, len);
 
+            ttime = xTaskGetTickCount();
             esp_err_t er = esp_now_send(send_param->dest_mac, send_param->buffer, send_param->len);
             if (er != ESP_OK) {
                 ESP_LOGE(TAG, "Send error: %x", er);
@@ -378,7 +384,8 @@ int send_to_client(host_espnow_send_param_t *send_param, uint8_t* data, int len)
 }
 //TODO: turn into 2 tasks with queue & interrupts for better mediation with computer
 static void uart_in_task(void* arg) {
-    vTaskSuspend(NULL);
+    //vTaskSuspend(NULL);
+
     gpio_isr_handler_remove(9);
     gpio_isr_handler_remove(10);
     //recover send param for forwarding uart -> wifi
