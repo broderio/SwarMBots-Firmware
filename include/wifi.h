@@ -1,17 +1,17 @@
+#ifndef WIFI_H
+#define WIFI_H
+
+<<<<<<< HEAD
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "esp_now.h"
+
+#define MBOT_PARAM_DEFS_H
+
+=======
+>>>>>>> 8506bee13e3b1c8784a9d16f08bb346e2238089f
 #define ESPNOW_WIFI_MODE WIFI_MODE_AP
 #define ESPNOW_WIFI_IF   ESP_IF_WIFI_AP
-
-#include "nvs_flash.h"
-#include "esp_random.h"
-#include "esp_event.h"
-#include "esp_netif.h"
-#include "esp_wifi.h"
-#include "esp_log.h"
-#include "esp_mac.h"
-#include "esp_now.h"
-#include "esp_crc.h"
-#include <esp_timer.h>
-
 #define ESPNOW_CHANNEL              1                   //wifi channel - LEGAL: use only 1, 6, or 11 for FCC compliance & reliability
 #define ESPNOW_PMK                  "pmk1234567890123"  //primary master key
 #define ESPNOW_DATA_MAX_LEN         100                 //max size of packet payload
@@ -23,7 +23,6 @@ static uint8_t s_host_mac[ESP_NOW_ETH_ALEN] = {0xF4, 0x12, 0xFA, 0xFA, 0x11, 0xe
 
 const char *TAG = "WIFI";
 static QueueHandle_t espnow_queue;
-static QueueHandle_t spi_send_queue;
 
 typedef enum {
     ESPNOW_SEND_CB,
@@ -67,14 +66,14 @@ typedef struct {
     uint8_t dest_mac[ESP_NOW_ETH_ALEN];   //MAC address of destination device.
 } espnow_send_param_t;
 
-
+static espnow_send_param_t* send_param;
 static void espnow_deinit(espnow_send_param_t *send_param);
 static void wifi_init(void);
 static void espnow_send_cb(const uint8_t *mac_addr, esp_now_send_status_t status);
 static void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len);
 int espnow_data_parse(uint8_t *data, uint16_t data_len, uint8_t *msg, int *len);
 void espnow_data_prepare(espnow_send_param_t *send_param, uint8_t *data, int len);
-static espnow_send_param_t* espnow_init(void);
+static void espnow_init(void);
 static void espnow_deinit(espnow_send_param_t *send_param);
 
 /* WiFi should start before using ESPNOW */
@@ -200,15 +199,14 @@ void espnow_data_prepare(espnow_send_param_t *send_param, uint8_t *data, int len
     buf->crc = esp_crc16_le(UINT16_MAX, (uint8_t const *)buf, send_param->len); // compute checksum to send with packet
 }
 
-static espnow_send_param_t* espnow_init(void)
+static void espnow_init(void)
 {
-    espnow_send_param_t* send_param;
     // queue semaphore of espnow requests to handle with task
     espnow_queue = xQueueCreate(ESPNOW_QUEUE_SIZE, sizeof(espnow_event_t));
     if (espnow_queue == NULL)
     {
         ESP_LOGE(TAG, "Create mutex fail");
-        return NULL;
+        return;
     }
 
     /* Initialize ESPNOW and register sending and receiving callback function. */
@@ -228,7 +226,7 @@ static espnow_send_param_t* espnow_init(void)
         ESP_LOGE(TAG, "Malloc peer information fail");
         vSemaphoreDelete(espnow_queue);
         esp_now_deinit();
-        return NULL;
+        return;
     }
     memset(peer, 0, sizeof(esp_now_peer_info_t));
     peer->channel = ESPNOW_CHANNEL;
@@ -244,7 +242,7 @@ static espnow_send_param_t* espnow_init(void)
         ESP_LOGE(TAG, "Malloc send parameter fail");
         vSemaphoreDelete(espnow_queue);
         esp_now_deinit();
-        return NULL;
+        return;
     }
     memset(send_param, 0, sizeof(espnow_send_param_t));
     send_param->len = 0;
@@ -255,10 +253,10 @@ static espnow_send_param_t* espnow_init(void)
         free(send_param);
         vSemaphoreDelete(espnow_queue);
         esp_now_deinit();
-        return NULL;
+        return;
     }
     memcpy(send_param->dest_mac, s_host_mac, ESP_NOW_ETH_ALEN);
-    return send_param;
+    return;
 }
 
 // handles error by cleaning up param and deinitializing wifi
@@ -269,3 +267,21 @@ static void espnow_deinit(espnow_send_param_t *send_param)
     vSemaphoreDelete(espnow_queue);
     esp_now_deinit();
 }
+
+<<<<<<< HEAD
+int send_to_client(espnow_send_param_t *send_param, uint8_t* data, int len){
+    //if read data, forward to client
+    printf("Sending to"MACSTR"\n", MAC2STR(send_param->dest_mac));
+        if (len) {
+            espnow_data_prepare(send_param, data, len);
+            esp_err_t er = esp_now_send(send_param->dest_mac, send_param->buffer, send_param->len);
+            if (er != ESP_OK) {
+                ESP_LOGE(TAG, "Send error: %x", er);
+                return -1;
+            }
+        }
+    return 0;
+}
+=======
+>>>>>>> 8506bee13e3b1c8784a9d16f08bb346e2238089f
+#endif
