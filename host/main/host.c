@@ -85,22 +85,6 @@ static void host_espnow_task(void *pvParameter)
 
                 free(recv_cb->data); //free data field allocated in receive callback function
 
-<<<<<<< HEAD
-=======
-                if (peerNum > 0 && !mode) {
-                    esp_now_peer_info_t *peer = malloc(sizeof(esp_now_peer_info_t));
-                    if (peer == NULL) {
-                        ESP_LOGE(TAG, "Malloc peer information fail");
-                        espnow_deinit(send_param);
-                        vTaskDelete(NULL);
-                    }
-                    memset(peer, 0, sizeof(esp_now_peer_info_t));
-                    ESP_ERROR_CHECK( esp_now_fetch_peer(false, peer) );
-                    memcpy(send_param->dest_mac, peer->peer_addr, ESP_NOW_ETH_ALEN);
-                    free(peer);
-                }
-
->>>>>>> 8506bee13e3b1c8784a9d16f08bb346e2238089f
                 if (ret == 0) {
 
                     /* If MAC address does not exist in peer list, add it to peer list and begin sending it messages*/
@@ -270,57 +254,11 @@ void  app_main() {
     ESP_ERROR_CHECK( ret );
 
     wifi_init();
-<<<<<<< HEAD
     espnow_init();
     xTaskCreate(host_espnow_task, "host_espnow_task", 4096, (void*)send_param, 4, NULL);
     controller_init();
     //set the mode given the switch state defined in controller.c
-=======
-    espnow_send_param_t* send_param = espnow_init();
-    xTaskCreate(host_espnow_task, "host_espnow_task", 4096, (void*)send_param, 4, NULL);
 
-    //configure the ADC
-    esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_DEFAULT, 0, &adc1_chars);
-
-    //check for failures
-    ESP_ERROR_CHECK(adc1_config_width(ADC_WIDTH_BIT_DEFAULT));
-    ESP_ERROR_CHECK(adc1_config_channel_atten(JS_Y_PIN, ADC_ATTEN_DB_11));
-
-    gpio_config_t GPIO = {};
-     //interrupt of rising edge (release button)
-    GPIO.intr_type = GPIO_INTR_POSEDGE;
-    //bit mask of the pins, use GPIO4/5 here
-    GPIO.pin_bit_mask = (0b1 << B1_PIN) | (0b1 << B2_PIN);
-    //set as input mode
-    GPIO.mode = GPIO_MODE_INPUT;
-    //enable pull-up mode
-    GPIO.pull_up_en = 1;
-    gpio_config(&GPIO);
-    //configure switch interrupt
-    GPIO.intr_type = GPIO_INTR_ANYEDGE;
-    //bit mask of the pins, use GPIO4/5 here
-    GPIO.pin_bit_mask = (0b1 << SW_PIN);
-    //set as input mode
-    GPIO.mode = GPIO_MODE_INPUT;
-    //enable pull-up mode
-    GPIO.pull_down_en = 1;
-    gpio_config(&GPIO);
-
-    //install gpio isr service
-    gpio_install_isr_service(0);
-
-    //create a queue to handle gpio event from isr
-    gpio_evt_queue = xQueueCreate(10, sizeof(uint32_t));
-    uart_clear = xQueueCreate(10, sizeof(uint32_t));
-    //hook isr handler for specific gpio pin
-    gpio_isr_handler_add(B1_PIN, buttons_isr_handler, (void*) B1_PIN);
-    //hook isr handler for specific gpio pin
-    gpio_isr_handler_add(B2_PIN, buttons_isr_handler, (void*) B2_PIN);
-    //hook isr handler for specific gpio pin
-    gpio_isr_handler_add(SW_PIN, switch_isr_handler, (void*) SW_PIN);
-
-    //set the mode given the switch state
->>>>>>> 8506bee13e3b1c8784a9d16f08bb346e2238089f
     mode = (bool)gpio_get_level(SW_PIN);
     mode = !mode;
 
@@ -333,16 +271,9 @@ void  app_main() {
     joystick_v = joystick_v/1000;
     joystick_h = joystick_h/1000;
 
-<<<<<<< HEAD
     xTaskCreate(uart_in_task, "uart_in_task", 2048, NULL, 1, &serialMode);  
     //make the print preempt the adc since it happens rarely
     xTaskCreate(read_joystick_task, "read_joystick_task", 2048, NULL, 1, &controllerMode);
-=======
-
-    xTaskCreate(uart_in_task, "uart_in_task", 2048, (void*) send_param, 1, &serialMode);  
-    //make the print preempt the adc since it happens rarely
-    xTaskCreate(read_joystick_task, "read_joystick_task", 2048, (void*) send_param, 1, &controllerMode);
->>>>>>> 8506bee13e3b1c8784a9d16f08bb346e2238089f
     //for debugging 
     //xTaskCreate(print_task, "print_task", 2048, NULL, 3, NULL);
 }
