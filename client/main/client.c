@@ -31,8 +31,6 @@
 #include "lcm/mbot_lcm_msgs_serial.h"
 #include "lcm/comms.h"
 
-SemaphoreHandle_t spi_mutex;
-
 static void client_espnow_task(void *pvParameter)
 {
     // set important variables
@@ -188,16 +186,13 @@ void send_task(void *args)
         t.rx_buffer = NULL;
 
         printf("Received packet. Waiting for lock...\n");
-        if (xSemaphoreTake(spi_mutex, portMAX_DELAY) == pdTRUE) {
-            ret = spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
-            xSemaphoreGive(spi_mutex);
-            if (ret != ESP_OK)
-            {
-                printf("Error transmitting: 0x%x\n", ret);
-                continue;
-            }
-            printf("Sent %zu bytes\n", t.trans_len / 8);
+        ret = spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
+        if (ret != ESP_OK)
+        {
+            printf("Error transmitting: 0x%x\n", ret);
+            continue;
         }
+        printf("Sent %zu bytes\n", t.trans_len / 8);
     }
 }
 
@@ -212,19 +207,15 @@ void recv_task(void *args)
         t.tx_buffer = NULL;
         t.rx_buffer = recvbuf;
 
-        printf("Waiting for packet...\n");
-        if (xSemaphoreTake(spi_mutex, portMAX_DELAY) == pdTRUE) {
-            ret = spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
-            xSemaphoreGive(spi_mutex);
-            if (ret != ESP_OK)
-            {
-                printf("Error transmitting: 0x%x\n", ret);
-                continue;
-            }
+        //printf("Waiting for packet...\n");
+        ret = spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
+        if (ret != ESP_OK)
+        {
+            printf("Error transmitting: 0x%x\n", ret);
+            continue;
         }
 
         if (t.trans_len > t.length)
-            // this means more data was transmitted than expected
             continue;
 
         // TODO: send t.tx_buffer over wifi
@@ -330,9 +321,6 @@ void app_main(void)
         ESP_LOGE(TAG, "Failed to create mutex.");
         return;
     }
-
-    // Create SPI mutex
-    spi_mutex = xSemaphoreCreateMutex();
 
     xTaskCreate(client_espnow_task, "host_espnow_task", 4096, (void*)send_param, 4, NULL);
     xTaskCreate(recv_task, "recv_task", 2048 * 4, NULL, 5, &recv_task_handle);
