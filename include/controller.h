@@ -3,11 +3,16 @@
 
 #include "inttypes.h"
 #include "freertos/FreeRTOS.h"
-#include "esp_adc_cal.h"
+// #include "esp_adc_cal.h"
+
+#include "esp_adc/adc_oneshot.h"
+#include "esp_adc/adc_cali.h"
+#include "esp_adc/adc_cali_scheme.h"
+
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "freertos/timers.h"
-#include "driver/adc.h"
+// #include "driver/adc.h"
 #include "lcm/mbot_lcm_msgs_serial.h"
 #include "lcm/comms.h"
 #include "mbot_params.h"
@@ -15,12 +20,16 @@
 #include "esp_log.h"
 #include "wifi.h"
 
+extern espnow_send_param_t send_param;
 static uint32_t last_button = 0;
 static uint32_t last_press = 0;
 static uint32_t last_switch = 0;
 
 static QueueHandle_t gpio_evt_queue = NULL;
-static esp_adc_cal_characteristics_t adc1_chars;
+// static esp_adc_cal_characteristics_t adc1_chars;
+adc_oneshot_unit_handle_t adc1_handle;
+static adc_cali_handle_t JS_Y_cali;
+static adc_cali_handle_t JS_X_cali;
 
 static bool mode = 1;
 
@@ -58,7 +67,7 @@ static void buttons_isr_handler(void* arg)
     esp_now_peer_info_t *peer = malloc(sizeof(esp_now_peer_info_t));
     if (peer == NULL) return;
     ESP_ERROR_CHECK( esp_now_fetch_peer(true, peer));// != ESP_OK) return;
-    memcpy(send_param->dest_mac, peer->peer_addr, ESP_NOW_ETH_ALEN);
+    memcpy(send_param.dest_mac, peer->peer_addr, ESP_NOW_ETH_ALEN);
     free(peer);
 }
 
@@ -87,11 +96,31 @@ static void switch_isr_handler(void* arg)
 
 void controller_init(){
     //configure the ADC
-    esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_DEFAULT, 0, &adc1_chars);
+    // esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_DEFAULT, 0, &adc1_chars);
 
-    //check for failures
-    ESP_ERROR_CHECK(adc1_config_width(ADC_WIDTH_BIT_DEFAULT));
-    ESP_ERROR_CHECK(adc1_config_channel_atten(JS_Y_PIN, ADC_ATTEN_DB_11));
+     //-------------ADC1 Init---------------//
+    adc_oneshot_unit_init_cfg_t init_config1 = {
+        .unit_id = ADC_UNIT_1,
+    };
+    ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config1, &adc1_handle));
+
+    //-------------ADC1 Config---------------//
+    adc_oneshot_chan_cfg_t config = {
+        .bitwidth = ADC_BITWIDTH_DEFAULT,
+        .atten = ADC_ATTEN_DB_11,
+    };
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ADC_CHANNEL_3, &config));
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ADC_CHANNEL_4, &config));
+
+    adc_cali_curve_fitting_config_t cali_config = {
+        .unit_id = ADC_UNIT_1,
+        .chan = ADC_CHANNEL_3,
+        .atten = ADC_ATTEN_DB_0,
+        .bitwidth = ADC_BITWIDTH_DEFAULT,
+    };
+    adc_cali_create_scheme_curve_fitting(&cali_config, &JS_Y_cali);
+    cali_config.chan = ADC_CHANNEL_4;
+    adc_cali_create_scheme_curve_fitting(&cali_config, &JS_X_cali);
 
     gpio_config_t GPIO = {};
      //interrupt of rising edge (release button)
