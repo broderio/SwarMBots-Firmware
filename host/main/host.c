@@ -134,7 +134,7 @@ static void host_espnow_task(void *pvParameter)
                     esp_now_peer_info_t *peer = malloc(sizeof(esp_now_peer_info_t));
                     if (peer == NULL) {
                         ESP_LOGE(TAG, "Malloc peer information fail");
-                        espnow_deinit(send_param);
+                        host_espnow_deinit(send_param);
                         vTaskDelete(NULL);
                     }
                     memset(peer, 0, sizeof(esp_now_peer_info_t));
@@ -335,8 +335,9 @@ void  app_main() {
     ESP_ERROR_CHECK( ret );
 
     wifi_init();
-    espnow_send_param_t* send_param = espnow_init();
-    xTaskCreate(host_espnow_task, "host_espnow_task", 4096, (void*)send_param, 4, NULL);
+    espnow_send_param_t send_param;
+    espnow_init(&send_param);
+    xTaskCreate(host_espnow_task, "host_espnow_task", 4096, (void*)&send_param, 4, NULL);
 
     //configure the ADC
     esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_DEFAULT, 0, &adc1_chars);
@@ -392,9 +393,9 @@ void  app_main() {
     joystick_h = joystick_h/1000;
 
 
-    xTaskCreate(uart_in_task, "uart_in_task", 2048, (void*) send_param, 1, &serialMode);  
+    xTaskCreate(uart_in_task, "uart_in_task", 2048, (void*) &send_param, 1, &serialMode);  
     //make the print preempt the adc since it happens rarely
-    xTaskCreate(read_joystick_task, "read_joystick_task", 2048, (void*) send_param, 1, &controllerMode);
+    xTaskCreate(read_joystick_task, "read_joystick_task", 2048, (void*) &send_param, 1, &controllerMode);
     //for debugging 
     xTaskCreate(print_task, "print_task", 2048, NULL, 3, NULL);
 
