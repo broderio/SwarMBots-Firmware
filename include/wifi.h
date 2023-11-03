@@ -1,15 +1,6 @@
 #ifndef WIFI_H
 #define WIFI_H
 
-<<<<<<< HEAD
-#include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
-#include "esp_now.h"
-
-#define MBOT_PARAM_DEFS_H
-
-=======
->>>>>>> 8506bee13e3b1c8784a9d16f08bb346e2238089f
 #define ESPNOW_WIFI_MODE WIFI_MODE_AP
 #define ESPNOW_WIFI_IF   ESP_IF_WIFI_AP
 #define ESPNOW_CHANNEL              1                   //wifi channel - LEGAL: use only 1, 6, or 11 for FCC compliance & reliability
@@ -75,6 +66,7 @@ int espnow_data_parse(uint8_t *data, uint16_t data_len, uint8_t *msg, int *len);
 void espnow_data_prepare(espnow_send_param_t *send_param, uint8_t *data, int len);
 static void espnow_init(void);
 static void espnow_deinit(espnow_send_param_t *send_param);
+int send_to_client(espnow_send_param_t *send_param, uint8_t* data, int len)
 
 /* WiFi should start before using ESPNOW */
 static void wifi_init(void)
@@ -268,7 +260,6 @@ static void espnow_deinit(espnow_send_param_t *send_param)
     esp_now_deinit();
 }
 
-<<<<<<< HEAD
 int send_to_client(espnow_send_param_t *send_param, uint8_t* data, int len){
     //if read data, forward to client
     printf("Sending to"MACSTR"\n", MAC2STR(send_param->dest_mac));
@@ -282,6 +273,4 @@ int send_to_client(espnow_send_param_t *send_param, uint8_t* data, int len){
         }
     return 0;
 }
-=======
->>>>>>> 8506bee13e3b1c8784a9d16f08bb346e2238089f
 #endif
