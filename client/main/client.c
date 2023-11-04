@@ -168,7 +168,8 @@ void send_task(void *args)
         t.rx_buffer = NULL;
 
         printf("Received packet. Waiting for lock...\n");
-        ret = spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
+        ret = ESP_OK;
+        t.trans_len = 1;//spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
         if (ret != ESP_OK)
         {
             printf("Error transmitting: 0x%x\n", ret);
