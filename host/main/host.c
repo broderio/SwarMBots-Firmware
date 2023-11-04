@@ -110,9 +110,35 @@ static void host_espnow_task(void *pvParameter)
                             vTaskDelete(NULL);
                         }
                         memset(peer, 0, sizeof(esp_now_peer_info_t));
-                        ESP_ERROR_CHECK(esp_now_fetch_peer(false, peer));
-                        memcpy(send_param.dest_mac, peer->peer_addr, ESP_NOW_ETH_ALEN);
-                        free(peer);
+                        peer->channel = ESPNOW_CHANNEL;
+                        peer->ifidx = ESPNOW_WIFI_IF;
+                        peer->encrypt = false;
+                        memcpy(peer->peer_addr, recv_cb->mac_addr, ESP_NOW_ETH_ALEN);
+                        ESP_ERROR_CHECK( esp_now_add_peer(peer) );
+                        peers[peerNum] = peer;
+                        //free(peer);
+                        memcpy(send_param->dest_mac, recv_cb->mac_addr, ESP_NOW_ETH_ALEN);
+                        peerNum++;
+                    }
+                    else {
+                        if (peerNum > 0 && mode) {
+                            printf("changing peer\n");
+                            esp_now_peer_info_t *peer = malloc(sizeof(esp_now_peer_info_t));
+                            if (peer == NULL) {
+                                ESP_LOGE(TAG, "Malloc peer information fail");
+                                espnow_deinit(send_param);
+                                vTaskDelete(NULL);
+                            }
+                            memset(peer, 0, sizeof(esp_now_peer_info_t));
+                            ESP_ERROR_CHECK( esp_now_fetch_peer(false, peer) );
+                            memcpy(send_param->dest_mac, peer->peer_addr, ESP_NOW_ETH_ALEN);
+                            free(peer);
+                        }
+                        //measured rtt around 9ms with host tick rate at 1000Hz and client at 100Hz
+                        //forward to computer
+                        recv_data[recv_len] = '\n';
+                        uart_write_bytes(UART_PORT_NUM, (const char *) recv_data, recv_len+1);
+
                     }
                     // measured rtt around 9ms with host tick rate at 1000Hz and client at 100Hz
                     // forward to computer

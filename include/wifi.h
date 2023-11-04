@@ -1,6 +1,12 @@
 #ifndef WIFI_H
 #define WIFI_H
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "esp_now.h"
+
+#define MBOT_PARAM_DEFS_H
+//WIFI_MODE_AP
 #define ESPNOW_WIFI_MODE WIFI_MODE_AP
 #define ESPNOW_WIFI_IF ESP_IF_WIFI_AP
 #define ESPNOW_CHANNEL 1              // wifi channel - LEGAL: use only 1, 6, or 11 for FCC compliance & reliability

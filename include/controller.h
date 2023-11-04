@@ -20,6 +20,9 @@
 #include "esp_log.h"
 #include "wifi.h"
 
+esp_now_peer_info_t* peers[8];
+size_t curr_bot = 0;
+static int peerNum = 0;
 extern espnow_send_param_t send_param;
 static uint32_t last_button = 0;
 static uint32_t last_press = 0;
@@ -64,13 +67,14 @@ static void buttons_isr_handler(void *arg)
         return;
     last_button = gpio_num;
     last_press = ticks;
-    // xQueueSendFromISR(gpio_evt_queue, &gpio_num, NULL);
-    esp_now_peer_info_t *peer = malloc(sizeof(esp_now_peer_info_t));
-    if (peer == NULL)
-        return;
-    ESP_ERROR_CHECK(esp_now_fetch_peer(true, peer)); // != ESP_OK) return;
-    memcpy(send_param.dest_mac, peer->peer_addr, ESP_NOW_ETH_ALEN);
-    free(peer);
+    //xQueueSendFromISR(gpio_evt_queue, &gpio_num, NULL);
+    // esp_now_peer_info_t *peer = malloc(sizeof(esp_now_peer_info_t));
+    // if (peer == NULL) return;
+    // ESP_ERROR_CHECK( esp_now_fetch_peer(false, peer));// != ESP_OK) return;
+    if (gpio_num == 9) curr_bot = (curr_bot + 1) % peerNum;
+    else curr_bot = (curr_bot == 0)? peerNum - 1: curr_bot - 1;
+    memcpy(send_param->dest_mac, peers[curr_bot]->peer_addr, ESP_NOW_ETH_ALEN);
+    //free(peer);
 }
 
 // ISR for switch (change modes)
