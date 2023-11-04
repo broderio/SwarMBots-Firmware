@@ -72,6 +72,7 @@ int espnow_data_parse(uint8_t *data, uint16_t data_len, uint8_t *msg, int *len);
 void espnow_data_prepare(espnow_send_param_t *send_param, uint8_t *data, int len);
 static void espnow_init(void);
 static void espnow_deinit(espnow_send_param_t *send_param);
+int send_to_client(espnow_send_param_t *send_param, uint8_t* data, int len);
 
 /* WiFi should start before using ESPNOW */
 static void wifi_init(void)

@@ -255,8 +255,8 @@ void  app_main() {
     espnow_init();
     xTaskCreate(host_espnow_task, "host_espnow_task", 4096, (void*)send_param, 4, NULL);
     controller_init();
+  
     //set the mode given the switch state defined in controller.c
-
     mode = (bool)gpio_get_level(SW_PIN);
     mode = !mode;
 
@@ -272,6 +272,7 @@ void  app_main() {
     xTaskCreate(uart_in_task, "uart_in_task", 2048, NULL, 1, &serialMode);  
     //make the print preempt the adc since it happens rarely
     xTaskCreate(read_joystick_task, "read_joystick_task", 2048, NULL, 1, &controllerMode);
+
     //for debugging 
     //xTaskCreate(print_task, "print_task", 2048, NULL, 3, NULL);
 }
