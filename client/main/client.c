@@ -33,6 +33,7 @@
 #include "lcm/comms.h"
 
 static QueueHandle_t spi_send_queue;
+SemaphoreHandle_t spi_mutex;
 
 static void client_espnow_task(void *pvParameter)
 {
@@ -168,12 +169,15 @@ void send_task(void *args)
         t.rx_buffer = NULL;
 
         printf("Received packet. Waiting for lock...\n");
-        ret = ESP_OK;
-        t.trans_len = 1;//spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
-        if (ret != ESP_OK)
-        {
-            printf("Error transmitting: 0x%x\n", ret);
-            continue;
+        t.trans_len = 1;
+        if (xSemaphoreTake(spi_mutex, portMAX_DELAY) == pdTRUE) {
+            ret = spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
+            xSemaphoreGive(spi_mutex);
+            if (ret != ESP_OK)
+            {
+                printf("Error transmitting: 0x%x\n", ret);
+                continue;
+            }
         }
         printf("Sent %zu bytes\n", t.trans_len / 8);
     }
@@ -190,12 +194,20 @@ void recv_task(void *args)
         t.tx_buffer = NULL;
         t.rx_buffer = recvbuf;
 
-        //printf("Waiting for packet...\n");
-        ret = spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
-        if (ret != ESP_OK)
-        {
-            printf("Error transmitting: 0x%x\n", ret);
-            continue;
+        // printf("Waiting for packet...\n");
+        if (xSemaphoreTake(spi_mutex, portMAX_DELAY) == pdTRUE) {
+            ret = spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
+            if (xSemaphoreGive(spi_mutex) == pdTRUE) {
+                printf("Released lock\n");
+            }
+            else {
+                printf("Error releasing lock\n");
+            }
+            if (ret != ESP_OK)
+            {
+                printf("Error transmitting: 0x%x\n", ret);
+                continue;
+            }
         }
 
         if (t.trans_len > t.length)
@@ -230,6 +242,10 @@ void app_main(void)
 
     printf("Initializing SPI...\n");
     spi_init();
+
+    // Create mutex for SPI
+    spi_mutex = xSemaphoreCreateBinary();
+    xSemaphoreGive(spi_mutex);
 
     // Create tasks
     TaskHandle_t recv_task_handle, send_task_handle;
