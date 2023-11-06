@@ -33,6 +33,7 @@
 #include "lcm/comms.h"
 
 static QueueHandle_t spi_send_queue;
+espnow_send_param_t send_param;
 SemaphoreHandle_t spi_mutex;
 
 static void client_espnow_task(void *pvParameter)
@@ -50,12 +51,12 @@ static void client_espnow_task(void *pvParameter)
     ESP_LOGI(TAG, "Start sending broadcast data");
 
     // send empty message to start comms
-    espnow_data_prepare(send_param, NULL, 0);
-    esp_err_t er = esp_now_send(send_param->dest_mac, send_param->buffer, send_param->len);
+    espnow_data_prepare(&send_param, NULL, 0);
+    esp_err_t er = esp_now_send(send_param.dest_mac, send_param.buffer, send_param.len);
     if (er != ESP_OK)
     {
         ESP_LOGE(TAG, "Send error: %d", er);
-        espnow_deinit(send_param);
+        espnow_deinit(&send_param);
         vTaskDelete(NULL);
     }
 
@@ -74,10 +75,10 @@ static void client_espnow_task(void *pvParameter)
             //     ESP_LOGI(TAG, "Resending broadcast data");
 
             //     //send empty message to start comms
-            //     esp_err_t er = esp_now_send(send_param->dest_mac, send_param->buffer, 1);
+            //     esp_err_t er = esp_now_send(send_param.dest_mac, send_param.buffer, 1);
             //     if (er != ESP_OK) {
             //         ESP_LOGE(TAG, "Send error: %d", er);
-            //         espnow_deinit(send_param);
+            //         espnow_deinit(&send_param);
             //         vTaskDelete(NULL);
             //     }
             // }
@@ -102,7 +103,7 @@ static void client_espnow_task(void *pvParameter)
                     if (peer == NULL)
                     {
                         ESP_LOGE(TAG, "Malloc peer information fail");
-                        espnow_deinit(send_param);
+                        espnow_deinit(&send_param);
                         vTaskDelete(NULL);
                     }
                     memset(peer, 0, sizeof(esp_now_peer_info_t));
@@ -127,13 +128,13 @@ static void client_espnow_task(void *pvParameter)
                     ESP_LOGW(TAG, "Send queue fail");
                 }
 
-                espnow_data_prepare(send_param, (uint8_t *)"Ack", 3);
+                espnow_data_prepare(&send_param, (uint8_t *)"Ack", 3);
 
-                esp_err_t er = esp_now_send(send_param->dest_mac, send_param->buffer, send_param->len);
+                esp_err_t er = esp_now_send(send_param.dest_mac, send_param.buffer, send_param.len);
                 if (er != ESP_OK)
                 {
                     ESP_LOGE(TAG, "Send error: %d", er);
-                    espnow_deinit(send_param);
+                    espnow_deinit(&send_param);
                     vTaskDelete(NULL);
                 }
 
@@ -159,7 +160,7 @@ void send_task(void *args)
     espnow_event_t dat;
     while (1)
     {
-        if (xQueueReceive(spi_send_queue, &dat, ESPNOW_MAXDELAY) != pdTRUE) 
+        if (xQueueReceive(spi_send_queue, &dat, ESPNOW_MAXDELAY) != pdTRUE)
         {
             printf("Error receiving from queue\n");
             continue;
@@ -234,11 +235,7 @@ void app_main(void)
 
     printf("Initializing ESP-NOW...\n");
 
-    espnow_init();
-    if (send_param == NULL){
-        ESP_LOGI(TAG, "Send param allocation failed");
-        return;
-    }
+    espnow_init(&send_param);
 
     printf("Initializing SPI...\n");
     spi_init();

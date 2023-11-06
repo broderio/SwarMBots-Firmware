@@ -8,71 +8,78 @@
 #define MBOT_PARAM_DEFS_H
 //WIFI_MODE_AP
 #define ESPNOW_WIFI_MODE WIFI_MODE_AP
-#define ESPNOW_WIFI_IF   ESP_IF_WIFI_AP
-#define ESPNOW_CHANNEL              1                   //wifi channel - LEGAL: use only 1, 6, or 11 for FCC compliance & reliability
-#define ESPNOW_PMK                  "pmk1234567890123"  //primary master key
-#define ESPNOW_DATA_MAX_LEN         100                 //max size of packet payload
-#define ESPNOW_MAXDELAY             (size_t)0xffffffff
-#define ESPNOW_QUEUE_SIZE           6
-#define ESP_NOW_ETH_ALEN            6                   //length of MAC address
+#define ESPNOW_WIFI_IF ESP_IF_WIFI_AP
+#define ESPNOW_CHANNEL 1              // wifi channel - LEGAL: use only 1, 6, or 11 for FCC compliance & reliability
+#define ESPNOW_PMK "pmk1234567890123" // primary master key
+#define ESPNOW_DATA_MAX_LEN 100       // max size of packet payload
+#define ESPNOW_MAXDELAY (size_t)0xffffffff
+#define ESPNOW_QUEUE_SIZE 6
+#define ESP_NOW_ETH_ALEN 6 // length of MAC address
+
 static uint8_t s_host_mac[ESP_NOW_ETH_ALEN] = {0xF4, 0x12, 0xFA, 0xFA, 0x11, 0xe1};
 #define IS_BROADCAST_ADDR(addr) (memcmp(addr, s_host_mac, ESP_NOW_ETH_ALEN) == 0)
 
 const char *TAG = "WIFI";
 static QueueHandle_t espnow_queue;
 
-typedef enum {
+typedef enum
+{
     ESPNOW_SEND_CB,
     ESPNOW_RECV_CB,
 } espnow_event_id_t;
 
-typedef struct {
+typedef struct
+{
     uint8_t mac_addr[ESP_NOW_ETH_ALEN];
     esp_now_send_status_t status;
 } espnow_event_send_cb_t;
 
-typedef struct {
+typedef struct
+{
     uint8_t mac_addr[ESP_NOW_ETH_ALEN];
     uint8_t *data;
     int data_len;
 } espnow_event_recv_cb_t;
 
-typedef union {
+typedef union
+{
     espnow_event_send_cb_t send_cb;
     espnow_event_recv_cb_t recv_cb;
 } espnow_event_info_t;
 
 /* When ESPNOW sending or receiving callback function is called, post event to ESPNOW task. */
-typedef struct {
+typedef struct
+{
     espnow_event_id_t id;
     espnow_event_info_t info;
 } espnow_event_t;
 
 /* User defined field of ESPNOW data. */
-//this should be the same between client and client
-typedef struct {
-    uint8_t len;                          //length of payload
-    uint16_t crc;                         //CRC16 value of ESPNOW data.                             checksum
-    uint8_t payload[0];                   //Real payload of ESPNOW data.
+// this should be the same between client and client
+typedef struct
+{
+    uint8_t len;        // length of payload
+    uint16_t crc;       // CRC16 value of ESPNOW data.
+    uint8_t payload[0]; // Real payload of ESPNOW data.
 } __attribute__((packed)) comm_espnow_data_t;
 
 /* Parameters of sending ESPNOW data. */
-typedef struct {
-    int len;                              //Length of ESPNOW data to be sent (buffer), unit: byte.
-    uint8_t *buffer;                      //Buffer pointing to ESPNOW data.                         must be >= sizeof(comm_espnow_data_t)
-    uint8_t dest_mac[ESP_NOW_ETH_ALEN];   //MAC address of destination device.
+typedef struct
+{
+    int len;                             // Length of ESPNOW data to be sent (buffer), unit: byte.
+    uint8_t buffer[ESPNOW_DATA_MAX_LEN]; // Buffer pointing to ESPNOW data.
+    uint8_t dest_mac[ESP_NOW_ETH_ALEN];  // MAC address of destination device.
 } espnow_send_param_t;
 
-static espnow_send_param_t* send_param;
 static void espnow_deinit(espnow_send_param_t *send_param);
 static void wifi_init(void);
 static void espnow_send_cb(const uint8_t *mac_addr, esp_now_send_status_t status);
 static void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len);
 int espnow_data_parse(uint8_t *data, uint16_t data_len, uint8_t *msg, int *len);
 void espnow_data_prepare(espnow_send_param_t *send_param, uint8_t *data, int len);
-static void espnow_init(void);
+static void espnow_init(espnow_send_param_t *send_param);
 static void espnow_deinit(espnow_send_param_t *send_param);
-int send_to_client(espnow_send_param_t *send_param, uint8_t* data, int len);
+int send_to_client(espnow_send_param_t *send_param, uint8_t *data, int len);
 
 /* WiFi should start before using ESPNOW */
 static void wifi_init(void)
@@ -197,7 +204,7 @@ void espnow_data_prepare(espnow_send_param_t *send_param, uint8_t *data, int len
     buf->crc = esp_crc16_le(UINT16_MAX, (uint8_t const *)buf, send_param->len); // compute checksum to send with packet
 }
 
-static void espnow_init(void)
+static void espnow_init(espnow_send_param_t *send_param)
 {
     // queue semaphore of espnow requests to handle with task
     espnow_queue = xQueueCreate(ESPNOW_QUEUE_SIZE, sizeof(espnow_event_t));
@@ -230,29 +237,12 @@ static void espnow_init(void)
     peer->channel = ESPNOW_CHANNEL;
     peer->ifidx = ESPNOW_WIFI_IF;
     peer->encrypt = false;
-    memcpy(peer->peer_addr, s_host_mac, ESP_NOW_ETH_ALEN); 
+    memcpy(peer->peer_addr, s_host_mac, ESP_NOW_ETH_ALEN);
     ESP_ERROR_CHECK(esp_now_add_peer(peer));
     free(peer);
 
-    send_param = malloc(sizeof(espnow_send_param_t));
-    if (send_param == NULL)
-    {
-        ESP_LOGE(TAG, "Malloc send parameter fail");
-        vSemaphoreDelete(espnow_queue);
-        esp_now_deinit();
-        return;
-    }
     memset(send_param, 0, sizeof(espnow_send_param_t));
     send_param->len = 0;
-    send_param->buffer = malloc(ESPNOW_DATA_MAX_LEN);
-    if (send_param->buffer == NULL)
-    {
-        ESP_LOGE(TAG, "Malloc send buffer fail");
-        free(send_param);
-        vSemaphoreDelete(espnow_queue);
-        esp_now_deinit();
-        return;
-    }
     memcpy(send_param->dest_mac, s_host_mac, ESP_NOW_ETH_ALEN);
     return;
 }
@@ -260,23 +250,24 @@ static void espnow_init(void)
 // handles error by cleaning up param and deinitializing wifi
 static void espnow_deinit(espnow_send_param_t *send_param)
 {
-    free(send_param->buffer);
-    free(send_param);
     vSemaphoreDelete(espnow_queue);
     esp_now_deinit();
 }
 
-int send_to_client(espnow_send_param_t *send_param, uint8_t* data, int len){
-    //if read data, forward to client
-    printf("Sending to"MACSTR"\n", MAC2STR(send_param->dest_mac));
-        if (len) {
-            espnow_data_prepare(send_param, data, len);
-            esp_err_t er = esp_now_send(send_param->dest_mac, send_param->buffer, send_param->len);
-            if (er != ESP_OK) {
-                ESP_LOGE(TAG, "Send error: %x", er);
-                return -1;
-            }
+int send_to_client(espnow_send_param_t *send_param, uint8_t *data, int len)
+{
+    // if read data, forward to client
+    printf("Sending to" MACSTR "\n", MAC2STR(send_param->dest_mac));
+    if (len)
+    {
+        espnow_data_prepare(send_param, data, len);
+        esp_err_t er = esp_now_send(send_param->dest_mac, send_param->buffer, send_param->len);
+        if (er != ESP_OK)
+        {
+            ESP_LOGE(TAG, "Send error: %x", er);
+            return -1;
         }
+    }
     return 0;
 }
 #endif
