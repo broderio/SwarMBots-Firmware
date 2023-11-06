@@ -27,7 +27,6 @@ static int joystick_v;
 static int joystick_h;
 
 espnow_send_param_t send_param;
-static int peerNum = 0;
 
 static void host_espnow_task(void *pvParameter)
 {
@@ -117,7 +116,7 @@ static void host_espnow_task(void *pvParameter)
                         ESP_ERROR_CHECK( esp_now_add_peer(peer) );
                         peers[peerNum] = peer;
                         //free(peer);
-                        memcpy(send_param->dest_mac, recv_cb->mac_addr, ESP_NOW_ETH_ALEN);
+                        memcpy(send_param.dest_mac, recv_cb->mac_addr, ESP_NOW_ETH_ALEN);
                         peerNum++;
                     }
                     else {
@@ -126,12 +125,12 @@ static void host_espnow_task(void *pvParameter)
                             esp_now_peer_info_t *peer = malloc(sizeof(esp_now_peer_info_t));
                             if (peer == NULL) {
                                 ESP_LOGE(TAG, "Malloc peer information fail");
-                                espnow_deinit(send_param);
+                                espnow_deinit(&send_param);
                                 vTaskDelete(NULL);
                             }
                             memset(peer, 0, sizeof(esp_now_peer_info_t));
                             ESP_ERROR_CHECK( esp_now_fetch_peer(false, peer) );
-                            memcpy(send_param->dest_mac, peer->peer_addr, ESP_NOW_ETH_ALEN);
+                            memcpy(send_param.dest_mac, peer->peer_addr, ESP_NOW_ETH_ALEN);
                             free(peer);
                         }
                         //measured rtt around 9ms with host tick rate at 1000Hz and client at 100Hz
@@ -249,15 +248,17 @@ void read_joystick_task(void *arg)
         // horizVoltage = esp_adc_cal_raw_to_voltage(adc1_get_raw(JS_X_PIN), &adc1_chars);
         adc_oneshot_get_calibrated_result(adc1_handle, JS_Y_cali, ADC_CHANNEL_3, &vertVoltage);
         adc_oneshot_get_calibrated_result(adc1_handle, JS_X_cali, ADC_CHANNEL_4, &horizVoltage);
+        printf("Vertical Voltage: %d\n", vertVoltage);
+        printf("Horizontal Voltage: %d\n", horizVoltage);
 
         // max out at 5 m/s
-        float vx = (abs(vertVoltage - joystick_v) > 50) ? vertVoltage * (2.0 * max) / 3120.0 - max : 0;
-        float wz = (abs(horizVoltage - joystick_h) > 50) ? -horizVoltage * (6.0 * max) / 3120.0 + 3 * max : 0;
-        // printf("Forward Velocity: %f m/s\n", vx);
-        // printf("Turn Velocity: %f m/s\n", wz);
+        float vx = (abs(vertVoltage - joystick_v) > 50) ? vertVoltage * (2.0 * max) / 946.0 - max : 0;
+        float wz = (abs(horizVoltage - joystick_h) > 50) ? -horizVoltage * (6.0 * max) / 946.0 + 3 * max : 0;
+        printf("Forward Velocity: %f m/s\n", vx);
+        printf("Turn Velocity: %f m/s\n", wz);
         send_to_client(&send_param, command_serializer(vx, 0, wz), sizeof(serial_twist2D_t) + ROS_PKG_LENGTH);
-        // printf("GPIO17: %d\n", gpio_get_level(SW_PIN));
-        vTaskDelay(pdMS_TO_TICKS(200));
+        printf("GPIO17: %d\n", gpio_get_level(SW_PIN));
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
 
@@ -281,12 +282,17 @@ void app_main()
     mode = !mode;
 
     // find the center of the joystick
+    joystick_h = 0;
+    joystick_v = 0;
     for (int i = 0; i < 1000; ++i)
     {
         // joystick_v += esp_adc_cal_raw_to_voltage(adc1_get_raw(JS_Y_PIN), &adc1_chars);
         // joystick_h += esp_adc_cal_raw_to_voltage(adc1_get_raw(JS_X_PIN), &adc1_chars);
-        adc_oneshot_get_calibrated_result(adc1_handle, JS_Y_cali, ADC_CHANNEL_3, &joystick_v);
-        adc_oneshot_get_calibrated_result(adc1_handle, JS_X_cali, ADC_CHANNEL_4, &joystick_h);
+        int tmp;
+        adc_oneshot_get_calibrated_result(adc1_handle, JS_Y_cali, ADC_CHANNEL_3, &tmp);
+        joystick_v += tmp;
+        adc_oneshot_get_calibrated_result(adc1_handle, JS_X_cali, ADC_CHANNEL_4, &tmp);
+        joystick_h += tmp;
     }
     // average of 1000 readings
     joystick_v = joystick_v / 1000;

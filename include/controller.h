@@ -73,7 +73,7 @@ static void buttons_isr_handler(void *arg)
     // ESP_ERROR_CHECK( esp_now_fetch_peer(false, peer));// != ESP_OK) return;
     if (gpio_num == 9) curr_bot = (curr_bot + 1) % peerNum;
     else curr_bot = (curr_bot == 0)? peerNum - 1: curr_bot - 1;
-    memcpy(send_param->dest_mac, peers[curr_bot]->peer_addr, ESP_NOW_ETH_ALEN);
+    memcpy(send_param.dest_mac, peers[curr_bot]->peer_addr, ESP_NOW_ETH_ALEN);
     //free(peer);
 }
 
