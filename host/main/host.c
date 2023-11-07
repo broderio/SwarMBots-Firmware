@@ -92,7 +92,8 @@ static void host_espnow_task(void *pvParameter)
                     peer->encrypt = false;
                     memcpy(peer->peer_addr, recv_cb->mac_addr, ESP_NOW_ETH_ALEN);
                     ESP_ERROR_CHECK(esp_now_add_peer(peer));
-                    free(peer);
+                    peers[peerNum] = peer;
+                    //free(peer);
                     memcpy(send_param.dest_mac, recv_cb->mac_addr, ESP_NOW_ETH_ALEN);
                     peerNum++;
                 }
