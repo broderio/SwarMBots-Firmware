@@ -3,7 +3,6 @@
 #include "freertos/semphr.h"
 #include "freertos/timers.h"
 
-// #include "driver/adc.h"
 #include "driver/uart.h"
 
 #include "nvs_flash.h"
@@ -13,7 +12,6 @@
 #include "esp_now.h"
 #include "esp_crc.h"
 #include "esp_log.h"
-// #include "esp_adc_cal.h"
 #include "lcm/mbot_lcm_msgs_serial.h"
 #include "lcm/comms.h"
 #include "mbot_params.h"
@@ -245,8 +243,6 @@ void read_joystick_task(void *arg)
 
     while (1)
     {
-        // vertVoltage = esp_adc_cal_raw_to_voltage(adc1_get_raw(JS_Y_PIN), &adc1_chars);
-        // horizVoltage = esp_adc_cal_raw_to_voltage(adc1_get_raw(JS_X_PIN), &adc1_chars);
         adc_oneshot_get_calibrated_result(adc1_handle, JS_Y_cali, ADC_CHANNEL_3, &vertVoltage);
         adc_oneshot_get_calibrated_result(adc1_handle, JS_X_cali, ADC_CHANNEL_4, &horizVoltage);
         printf("Vertical Voltage: %d\n", vertVoltage);
@@ -287,8 +283,6 @@ void app_main()
     joystick_v = 0;
     for (int i = 0; i < 1000; ++i)
     {
-        // joystick_v += esp_adc_cal_raw_to_voltage(adc1_get_raw(JS_Y_PIN), &adc1_chars);
-        // joystick_h += esp_adc_cal_raw_to_voltage(adc1_get_raw(JS_X_PIN), &adc1_chars);
         int tmp;
         adc_oneshot_get_calibrated_result(adc1_handle, JS_Y_cali, ADC_CHANNEL_3, &tmp);
         joystick_v += tmp;
