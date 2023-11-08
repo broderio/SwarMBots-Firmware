@@ -22,6 +22,7 @@ esp_now_peer_info_t* peers[8];
 size_t curr_bot = 0;
 static int peerNum = 0;
 extern espnow_send_param_t send_param;
+
 static uint32_t last_button = 0;
 static uint32_t last_press = 0;
 static uint32_t last_switch = 0;
@@ -102,7 +103,7 @@ static void switch_isr_handler(void *arg)
 
 void controller_init()
 {
-    // configure the ADC
+    // Configure the ADC
     adc_oneshot_unit_init_cfg_t init_config1 = {
         .unit_id = ADC_UNIT_1,
     };
@@ -125,37 +126,48 @@ void controller_init()
     cali_config.chan = ADC_CHANNEL_4;
     adc_cali_create_scheme_curve_fitting(&cali_config, &JS_X_cali);
 
-    gpio_config_t GPIO = {};
-    // interrupt of rising edge (release button)
-    GPIO.intr_type = GPIO_INTR_POSEDGE;
-    // bit mask of the pins, use GPIO4/5 here
-    GPIO.pin_bit_mask = (0b1 << B1_PIN) | (0b1 << B2_PIN);
-    // set as input mode
-    GPIO.mode = GPIO_MODE_INPUT;
-    // enable pull-up mode
-    GPIO.pull_up_en = 1;
-    gpio_config(&GPIO);
-    // configure switch interrupt
-    GPIO.intr_type = GPIO_INTR_ANYEDGE;
-    // bit mask of the pins, use GPIO4/5 here
-    GPIO.pin_bit_mask = (0b1 << SW_PIN);
-    // set as input mode
-    GPIO.mode = GPIO_MODE_INPUT;
-    // enable pull-up mode
-    GPIO.pull_down_en = 1;
-    gpio_config(&GPIO);
+    // Configure the GPIOs
+    gpio_config_t b_config = {
+        .intr_type = GPIO_INTR_POSEDGE;
+        .pin_bit_mask = (0b1 << B1_PIN) | (0b1 << B2_PIN);
+        .mode = GPIO_MODE_INPUT;
+        .pull_up_en = 1;
+    };
+    gpio_config(&b_config);
 
-    // install gpio isr service
+    gpio_config_t sw_config = {
+        .intr_type = GPIO_INTR_ANYEDGE;
+        .pin_bit_mask = (0b1 << SW_PIN);
+        .mode = GPIO_MODE_INPUT;
+        .pull_down_en = 1;
+    }
+    gpio_config(&sw_config);
+
+    // Install gpio isr service
     gpio_install_isr_service(0);
 
-    // create a queue to handle gpio event from isr
+    // Create a queue to handle gpio event from isr
     gpio_evt_queue = xQueueCreate(10, sizeof(uint32_t));
-    // hook isr handler for specific gpio pin
+
+    // Hook isr handler for specific gpio pin
     gpio_isr_handler_add(B1_PIN, buttons_isr_handler, (void *)B1_PIN);
-    // hook isr handler for specific gpio pin
     gpio_isr_handler_add(B2_PIN, buttons_isr_handler, (void *)B2_PIN);
-    // hook isr handler for specific gpio pin
     gpio_isr_handler_add(SW_PIN, switch_isr_handler, (void *)SW_PIN);
+}
+
+void find_joystick_center(int* x, int* y, size_t n=1000) {
+    int adc_val;
+    int x_tmp = 0;
+    int y_tmp = 0;
+    for (size_t i = 0; i < n; ++i)
+    {
+        adc_oneshot_get_calibrated_result(adc1_handle, JS_X_cali, ADC_CHANNEL_4, &adc_val);
+        x_tmp += adc_val;
+        adc_oneshot_get_calibrated_result(adc1_handle, JS_Y_cali, ADC_CHANNEL_3, &adc_val);
+        y_tmp += adc_val;
+    }
+    *x = x_tmp / n;
+    *y = y_tmp / n;
 }
 
 #endif

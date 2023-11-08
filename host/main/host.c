@@ -21,8 +21,8 @@
 #include "wifi.h"
 #include "controller.h"
 
-static int joystick_v;
-static int joystick_h;
+int joystick_x;
+int joystick_y;
 
 espnow_send_param_t send_param;
 
@@ -41,10 +41,7 @@ static void host_espnow_task(void *pvParameter)
         ESP_LOGI(TAG, "Could not get mac address, error code %d", er);
     }
 
-    // wait 3 seconds
-    vTaskDelay(3000 / portTICK_PERIOD_MS);
-    ESP_LOGI(TAG, "Host MAC: " MACSTR "", MAC2STR(mac));
-    ESP_LOGI(TAG, "Start sending broadcast data");
+    printf("Host MAC: " MACSTR "\n", MAC2STR(mac));
 
     // TODO: reformat to where host sends then waits a set time for a response
     // wait for response on repeat
@@ -248,8 +245,8 @@ void read_joystick_task(void *arg)
         printf("Horizontal Voltage: %d\n", horizVoltage);
 
         // max out at 5 m/s
-        float vx = (abs(vertVoltage - joystick_v) > 50) ? vertVoltage * (2.0 * max) / 946.0 - max : 0;
-        float wz = (abs(horizVoltage - joystick_h) > 50) ? -horizVoltage * (6.0 * max) / 946.0 + 3 * max : 0;
+        float vx = (abs(vertVoltage - joystick_y) > 50) ? vertVoltage * (2.0 * max) / 946.0 - max : 0;
+        float wz = (abs(horizVoltage - joystick_x) > 50) ? -horizVoltage * (6.0 * max) / 946.0 + 3 * max : 0;
         printf("Forward Velocity: %f m/s\n", vx);
         printf("Turn Velocity: %f m/s\n", wz);
         send_to_client(&send_param, command_serializer(vx, 0, wz), sizeof(serial_twist2D_t) + ROS_PKG_LENGTH);
@@ -260,6 +257,7 @@ void read_joystick_task(void *arg)
 
 void app_main()
 {
+    // Init NVS
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
     {
@@ -268,32 +266,20 @@ void app_main()
     }
     ESP_ERROR_CHECK(ret);
 
+    // Init wifi and espnow
     wifi_init();
     espnow_init(&send_param);
-    xTaskCreate(host_espnow_task, "host_espnow_task", 4096, (void *)&send_param, 4, NULL);
+
+    // Init controller
     controller_init();
+    calibrate_joystick(joystick_x, joystick_y);
 
-    // set the mode given the switch state defined in controller.c
-    mode = (bool)gpio_get_level(SW_PIN);
-    mode = !mode;
+    // Set the mode given the switch state defined in controller.c
+    mode = !(bool)gpio_get_level(SW_PIN);
 
-    // find the center of the joystick
-    joystick_h = 0;
-    joystick_v = 0;
-    for (int i = 0; i < 1000; ++i)
-    {
-        int tmp;
-        adc_oneshot_get_calibrated_result(adc1_handle, JS_Y_cali, ADC_CHANNEL_3, &tmp);
-        joystick_v += tmp;
-        adc_oneshot_get_calibrated_result(adc1_handle, JS_X_cali, ADC_CHANNEL_4, &tmp);
-        joystick_h += tmp;
-    }
-    // average of 1000 readings
-    joystick_v = joystick_v / 1000;
-    joystick_h = joystick_h / 1000;
-
+    // Create tasks
+    xTaskCreate(host_espnow_task, "host_espnow_task", 4096, (void *)&send_param, 4, NULL);
     xTaskCreate(uart_in_task, "uart_in_task", 2048, NULL, 1, &serialMode);
-    // make the print preempt the adc since it happens rarely
     xTaskCreate(read_joystick_task, "read_joystick_task", 2048, NULL, 1, &controllerMode);
 
     // for debugging
