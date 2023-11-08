@@ -30,7 +30,7 @@ typedef struct __attribute__((packed)) {
 } my_data_t;
 
 typedef struct {
-    uint8_t mac_addr[ESP_NOW_ETH_ALEN];
+    uint8_t mac_addr[MAC_ADDR_LEN];
     my_data_t data;
 } recv_packet_t;
 

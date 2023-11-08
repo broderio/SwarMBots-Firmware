@@ -110,7 +110,7 @@ static void client_espnow_task(void *pvParameter)
                     peer->channel = ESPNOW_CHANNEL;
                     peer->ifidx = ESPNOW_WIFI_IF;
                     peer->encrypt = false;
-                    memcpy(peer->peer_addr, recv_cb->mac_addr, ESP_NOW_ETH_ALEN);
+                    memcpy(peer->peer_addr, recv_cb->mac_addr, MAC_ADDR_LEN);
                     ESP_ERROR_CHECK(esp_now_add_peer(peer));
                     free(peer);
 

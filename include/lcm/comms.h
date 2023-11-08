@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <memory.h>
+#include "wifi.h"
 
 #ifndef COMMS_COMMONS_H
 #define COMMS_COMMONS_H
@@ -13,11 +14,11 @@
 
 #define PICO_IN_MSG     sizeof(data_pico) //equal to the size of the data_pico struct
 #define RPI_IN_MSG      sizeof(data_rpi) //equal to the size of the data_rpi struct
-#define ROS_HEADER_LENGTH 7
-#define ROS_FOOTER_LENGTH 1
-#define ROS_PKG_LENGTH  (ROS_HEADER_LENGTH + ROS_FOOTER_LENGTH) //length (in bytes) of ros packaging (header and footer)
-#define PICO_IN_BYTES   (PICO_IN_MSG + ROS_PKG_LENGTH) //equal to the size of the data_pico struct data plus bytes for ros packaging
-#define RPI_IN_BYTES    (RPI_IN_MSG + ROS_PKG_LENGTH) //equal to the size of the data_rpi struct data plus bytes for ros packaging
+#define ROS_HEADER_LEN 7
+#define ROS_FOOTER_LEN 1
+#define ROS_PKG_LEN  (ROS_HEADER_LEN + ROS_FOOTER_LEN) //length (in bytes) of ros packaging (header and footer)
+#define PICO_IN_BYTES   (PICO_IN_MSG + ROS_PKG_LEN) //equal to the size of the data_pico struct data plus bytes for ros packaging
+#define RPI_IN_BYTES    (RPI_IN_MSG + ROS_PKG_LEN) //equal to the size of the data_rpi struct data plus bytes for ros packaging
 
 #define TIMESYNC_PERIOD_US 1000000
 
@@ -36,6 +37,15 @@ enum message_topics{
     MBOT_VEL = 234
 };
 
+uint8_t checksum(uint8_t* addends, int len);
+void read_header(uint8_t* header_data);
+void read_message(uint8_t* msg_data_serialized, uint16_t message_len, char* topic_msg_data_checksum);
+void read_mac_address(uint8_t* mac_address, uint8_t* checksum_val);
+int validate_header(uint8_t* header_data);
+int validate_message(uint8_t* header_data, uint8_t* msg_data_serialized, uint16_t message_len, char topic_msg_data_checksum);
+int validate_mac_address(uint8_t* mac_address, uint8_t checksum_val);
+int encode_msg(uint8_t* MSG, int msg_len, uint16_t TOPIC, uint8_t* ROSPKT, int rospkt_len);
+
 uint8_t checksum(uint8_t* addends, int len) {
     //takes in an array and sums the contents then checksums the array
     int sum = 0;
@@ -43,6 +53,52 @@ uint8_t checksum(uint8_t* addends, int len) {
         sum += addends[i];
     }
     return 255 - ( ( sum ) % 256 );
+}
+
+void read_header(uint8_t* header_data) {
+    uint8_t trigger_val = 0x00;
+    while(trigger_val != 0xff)
+    {
+        uart_read_bytes(0, &trigger_val, 1, 1);
+    }
+    header_data[0] = trigger_val;
+    uart_read_bytes(0, &header_data[1], ROS_HEADER_LEN - 1, 1);
+}
+
+void read_message(uint8_t* msg_data_serialized, uint16_t message_len, char* topic_msg_data_checksum) {
+    uart_read_bytes(0, msg_data_serialized, message_len, 1);
+    uart_read_bytes(0, topic_msg_data_checksum, 1, 1);
+}
+
+void read_mac_address(uint8_t* mac_address, uint8_t* checksum_val) {
+    uart_read_bytes(0, mac_address, MAC_ADDR_LEN, 1);
+    uart_read_bytes(0, checksum_val, 1, 1);
+}
+
+// Function to validate the header
+int validate_header(uint8_t* header_data) {
+    int valid_header = (header_data[1] == 0xfe);
+    uint8_t cs1_addends[2] = {header_data[2], header_data[3]};
+    uint8_t cs_msg_len = checksum(cs1_addends, 2);
+    valid_header = valid_header && (cs_msg_len == header_data[4]);
+    return valid_header;
+}
+
+// Function to validate the message
+int validate_message(uint8_t* header_data, uint8_t* msg_data_serialized, uint16_t message_len, char topic_msg_data_checksum) {
+    uint8_t cs2_addends[message_len + 2]; 
+    cs2_addends[0] = header_data[5];
+    cs2_addends[1] = header_data[6];
+    for (int i = 0; i < message_len; i++) {
+        cs2_addends[i + 2] = msg_data_serialized[i];
+    }
+    uint8_t cs_topic_msg_data = checksum(cs2_addends, message_len + 2); 
+    int valid_message = (cs_topic_msg_data == topic_msg_data_checksum);
+    return valid_message;
+}
+
+int validate_mac_address(uint8_t* mac_address, uint8_t checksum_val) {
+    return checksum(mac_address, MAC_ADDR_LEN) == checksum_val;
 }
 
 int32_t bytes_to_int32(uint8_t bytes[4]) {
@@ -63,7 +119,7 @@ uint8_t* int32_to_bytes(int32_t i32t) {
 int encode_msg(uint8_t* MSG, int msg_len, uint16_t TOPIC, uint8_t* ROSPKT, int rospkt_len) {
 
     // SANITY CHECKS
-    if (msg_len+ROS_PKG_LENGTH != rospkt_len) {
+    if (msg_len+ROS_PKG_LEN != rospkt_len) {
         printf("Error: The length of the ROSPKT array does not match the length of the MSG array plus packaging.\n");
         return 0;
     }
@@ -96,29 +152,5 @@ int encode_msg(uint8_t* MSG, int msg_len, uint16_t TOPIC, uint8_t* ROSPKT, int r
 
     return 1;
 }
-
-// Function to validate the header
-int validate_header(uint8_t* header_data) {
-    bool valid_header = (header_data[1] == 0xfe);
-    uint8_t cs1_addends[2] = {header_data[2], header_data[3]};
-    uint8_t cs_msg_len = checksum(cs1_addends, 2);
-    valid_header = valid_header && (cs_msg_len == header_data[4]);
-    return valid_header;
-}
-
-
-// Function to validate the message
-int validate_message(uint8_t* header_data, uint8_t* msg_data_serialized, uint16_t message_len, char topic_msg_data_checksum) {
-    uint8_t cs2_addends[message_len + 2]; 
-    cs2_addends[0] = header_data[5];
-    cs2_addends[1] = header_data[6];
-    for (int i = 0; i < message_len; i++) {
-        cs2_addends[i + 2] = msg_data_serialized[i];
-    }
-    uint8_t cs_topic_msg_data = checksum(cs2_addends, message_len + 2); 
-    bool valid_message = (cs_topic_msg_data == topic_msg_data_checksum);
-    return valid_message;
-}
-
 
 #endif

@@ -18,10 +18,7 @@
 #include "esp_log.h"
 #include "wifi.h"
 
-esp_now_peer_info_t* peers[8];
-size_t curr_bot = 0;
-static int peerNum = 0;
-extern espnow_send_param_t send_param;
+static size_t curr_bot = 0;
 
 static uint32_t last_button = 0;
 static uint32_t last_press = 0;
@@ -47,11 +44,11 @@ uint8_t *command_serializer(float vx, float vy, float wz)
     // Initialize variables for packet
     size_t msg_len = sizeof(msg);
     uint8_t *msg_serialized = (uint8_t *)(malloc(msg_len));
-    uint8_t *packet = (uint8_t *)(malloc(msg_len + ROS_PKG_LENGTH));
+    uint8_t *packet = (uint8_t *)(malloc(msg_len + ROS_PKG_LEN));
 
     // Serialize message and create packet
     twist2D_t_serialize(&msg, msg_serialized);
-    encode_msg(msg_serialized, msg_len, MBOT_VEL_CMD, packet, msg_len + ROS_PKG_LENGTH);
+    encode_msg(msg_serialized, msg_len, MBOT_VEL_CMD, packet, msg_len + ROS_PKG_LEN);
     free(msg_serialized);
     return packet;
 }
@@ -65,14 +62,8 @@ static void buttons_isr_handler(void *arg)
         return;
     last_button = gpio_num;
     last_press = ticks;
-    //xQueueSendFromISR(gpio_evt_queue, &gpio_num, NULL);
-    // esp_now_peer_info_t *peer = malloc(sizeof(esp_now_peer_info_t));
-    // if (peer == NULL) return;
-    // ESP_ERROR_CHECK( esp_now_fetch_peer(false, peer));// != ESP_OK) return;
-    if (gpio_num == 9) curr_bot = (curr_bot + 1) % peerNum;
-    else curr_bot = (curr_bot == 0)? peerNum - 1: curr_bot - 1;
-    memcpy(send_param.dest_mac, peers[curr_bot]->peer_addr, ESP_NOW_ETH_ALEN);
-    //free(peer);
+    if (gpio_num == B1_PIN) curr_bot = (curr_bot + 1) % peer_num;
+    else curr_bot = (curr_bot == 0)? peer_num - 1: curr_bot - 1;
 }
 
 // ISR for switch (change modes)
@@ -87,8 +78,8 @@ static void switch_isr_handler(void *arg)
     {
         gpio_isr_handler_add(B1_PIN, buttons_isr_handler, (void *)B1_PIN);
         gpio_isr_handler_add(B2_PIN, buttons_isr_handler, (void *)B2_PIN);
-        vTaskResume(controllerMode);
         vTaskSuspend(serialMode);
+        vTaskResume(controllerMode);
     }
     else
     {
@@ -128,19 +119,19 @@ void controller_init()
 
     // Configure the GPIOs
     gpio_config_t b_config = {
-        .intr_type = GPIO_INTR_POSEDGE;
-        .pin_bit_mask = (0b1 << B1_PIN) | (0b1 << B2_PIN);
-        .mode = GPIO_MODE_INPUT;
-        .pull_up_en = 1;
+        .intr_type = GPIO_INTR_POSEDGE,
+        .pin_bit_mask = (0b1 << B1_PIN) | (0b1 << B2_PIN),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = 1
     };
     gpio_config(&b_config);
 
     gpio_config_t sw_config = {
-        .intr_type = GPIO_INTR_ANYEDGE;
-        .pin_bit_mask = (0b1 << SW_PIN);
-        .mode = GPIO_MODE_INPUT;
-        .pull_down_en = 1;
-    }
+        .intr_type = GPIO_INTR_ANYEDGE,
+        .pin_bit_mask = (0b1 << SW_PIN),
+        .mode = GPIO_MODE_INPUT,
+        .pull_down_en = 1
+    };
     gpio_config(&sw_config);
 
     // Install gpio isr service
@@ -155,7 +146,7 @@ void controller_init()
     gpio_isr_handler_add(SW_PIN, switch_isr_handler, (void *)SW_PIN);
 }
 
-void find_joystick_center(int* x, int* y, size_t n=1000) {
+void calibrate_joystick(int* x, int* y, size_t n) {
     int adc_val;
     int x_tmp = 0;
     int y_tmp = 0;
