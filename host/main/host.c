@@ -155,7 +155,8 @@ static void serial_mode_task(void *arg)
         // Send packet to client
         espnow_send_param_t send_param;
         memcpy(send_param.dest_mac, mac_address, MAC_ADDR_LEN);
-        send_to_client(&send_param, packet, pkt_len);
+        espnow_data_prepare(&send_param, packet, pkt_len);
+        esp_now_send(send_param.dest_mac, send_param.buffer, send_param.len);
 
         // Check to see if send was successful
         espnow_event_send_t *send_evt;
@@ -197,7 +198,8 @@ void pilot_mode_task(void *arg)
         esp_now_peer_info_t peer = peers[curr_bot];
         espnow_send_param_t send_param;
         memcpy(send_param.dest_mac, peer.peer_addr, MAC_ADDR_LEN);
-        send_to_client(&send_param, command_serializer(vx, 0, wz), sizeof(serial_twist2D_t) + ROS_PKG_LEN);
+        espnow_data_prepare(&send_param, command_serializer(vx, 0, wz), sizeof(serial_twist2D_t) + ROS_PKG_LEN);
+        esp_now_send(send_param.dest_mac, send_param.buffer, send_param.len);
         
         // printf("GPIO17: %d\n", gpio_get_level(SW_PIN));
         

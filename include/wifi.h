@@ -63,7 +63,6 @@ int espnow_data_parse(uint8_t *data, uint16_t data_len, uint8_t **msg, uint16_t 
 void espnow_data_prepare(espnow_send_param_t *send_param, uint8_t *data, int len);
 static void espnow_init();
 static void espnow_deinit();
-int send_to_client(espnow_send_param_t *send_param, uint8_t *data, int len);
 
 /* WiFi should start before using ESPNOW */
 static void wifi_init(void)
@@ -214,19 +213,6 @@ static void espnow_deinit()
     vSemaphoreDelete(espnow_send_queue);
     vSemaphoreDelete(espnow_recv_queue);
     esp_now_deinit();
-}
-
-int send_to_client(espnow_send_param_t *send_param, uint8_t *data, int len)
-{
-    // printf("Sending to" MACSTR "\n", MAC2STR(send_param->dest_mac));
-    espnow_data_prepare(send_param, data, len);
-    esp_err_t er = esp_now_send(send_param->dest_mac, send_param->buffer, send_param->len);
-    if (er != ESP_OK)
-    {
-        ESP_LOGE(TAG, "Send error: %x", er);
-        return -1;
-    }
-    return 0;
 }
 
 #endif
