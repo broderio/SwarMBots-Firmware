@@ -35,6 +35,7 @@
 SemaphoreHandle_t spi_mutex;
 bool found_host = false;
 uint8_t host_mac_addr[MAC_ADDR_LEN];
+SemaphoreHandle_t wifi_ready;
 
 static void espnow_recv_task(void *args)
 {
@@ -63,13 +64,12 @@ static void espnow_recv_task(void *args)
         free(evt->data);
 
         // Check if data is invalid
-        if (ret < 0) {
-            ESP_LOGE(TAG, "Receive invalid data");
+        if (ret != 0) {
+            ESP_LOGE(TAG, "Received invalid data");
             continue;
         }
-
         // Check if mac address is paired
-        if (!esp_now_is_peer_exist(evt->mac_addr) && !found_host)
+        if (!found_host && !esp_now_is_peer_exist(evt->mac_addr))
         {
             // Allocate peer
             esp_now_peer_info_t *peer = malloc(sizeof(esp_now_peer_info_t));
@@ -88,15 +88,18 @@ static void espnow_recv_task(void *args)
             free(peer);
             found_host = true;
             memcpy(host_mac_addr, evt->mac_addr, MAC_ADDR_LEN);
+            ESP_LOGI(TAG, "Found host");
+            xSemaphoreGive(wifi_ready);
         }
 
         // Populate SPI packet
         t.length = data_len * 8;
         t.tx_buffer = msg;
         t.rx_buffer = NULL;
+        t.trans_len = 0; //REMOVE LATER
 
         if (xSemaphoreTake(spi_mutex, portMAX_DELAY) == pdTRUE) {
-            ret = spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
+            ret = ESP_OK; //spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
             xSemaphoreGive(spi_mutex);
             if (ret != ESP_OK)
             {
@@ -113,20 +116,16 @@ void espnow_send_task(void *args)
     esp_err_t ret;
     spi_slave_transaction_t t;
     WORD_ALIGNED_ATTR uint8_t recvbuf[84];
+    xSemaphoreTake(wifi_ready, portMAX_DELAY);
     while (1)
     {
-        // TODO: change this so we block instead of busy waiting
-        if (!found_host) {
-            vTaskDelay(100 / portTICK_PERIOD_MS);
-            continue;
-        }
-
         t.length = 84 * 8;
         t.tx_buffer = NULL;
         t.rx_buffer = recvbuf;
+        t.trans_len = 0; //REMOVE LATEr
 
         if (xSemaphoreTake(spi_mutex, portMAX_DELAY) == pdTRUE) {
-            ret = spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
+            ret = ESP_OK; //spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
             xSemaphoreGive(spi_mutex);
             if (ret != ESP_OK)
             {
@@ -135,10 +134,10 @@ void espnow_send_task(void *args)
             }
         }
 
-        if (t.trans_len > t.length)
+        if (t.trans_len && t.trans_len > t.length)
             continue;
-
         espnow_send_param_t send_param;
+        printf("sending to " MACSTR, MAC2STR(send_param.dest_mac));
         memcpy(send_param.dest_mac, host_mac_addr, MAC_ADDR_LEN);
         espnow_data_prepare(&send_param, t.rx_buffer, t.trans_len / 8);
         esp_now_send(send_param.dest_mac, send_param.buffer, send_param.len);
@@ -175,6 +174,7 @@ void app_main(void)
     // Create mutex for SPI
     spi_mutex = xSemaphoreCreateBinary();
     xSemaphoreGive(spi_mutex);
+    wifi_ready = xSemaphoreCreateBinary();
 
     // Create tasks
     TaskHandle_t recv_task_handle, send_task_handle;

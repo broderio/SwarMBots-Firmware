@@ -48,10 +48,10 @@ static void print_task(void *arg)
 static void espnow_recv_task(void *args)
 {
     espnow_event_recv_t *evt;
-    uint8_t *msg;
+    uint8_t msg[ESPNOW_DATA_MAX_LEN];
     uint16_t data_len;
     int ret;
-
+    uint32_t packet_count = 0;
     uint8_t mac[MAC_ADDR_LEN];
     esp_err_t err = esp_wifi_get_mac(WIFI_IF_AP, mac);
     if (err != ESP_OK)
@@ -67,21 +67,21 @@ static void espnow_recv_task(void *args)
 
     while (xQueueReceive(espnow_recv_queue, &evt, portMAX_DELAY) == pdTRUE)
     {
-        ESP_LOGI(TAG, "Received data from: " MACSTR ", len: %d", MAC2STR(evt->mac_addr), evt->data_len);
+        printf("receieved data!\n");
+        //ESP_LOGI(TAG, "Received data from: " MACSTR ", len: %d", MAC2STR(evt->mac_addr), evt->data_len);
         // Parse incoming packet
-        ret = espnow_data_parse(evt->data, evt->data_len, &msg, &data_len);
-        free(evt->data);
+        ret = espnow_data_parse(evt->data, evt->data_len, msg, &data_len);
 
         // Check if data is invalid
         if (ret < 0) {
             ESP_LOGE(TAG, "Receive invalid data");
-            free(msg);
             continue;
         }
 
-        // Check if mac address is paired
+        // Check if mac address is paired TODO: how could this happen? Clients only talk to Host after host talks to them?
         if (esp_now_is_peer_exist(evt->mac_addr))
         {
+            printf("found a new peer unexpectedly\n");
             // Create BOTPKT
             size_t packet_len = data_len + MAC_ADDR_LEN + 4;
             uint8_t* packet = malloc(packet_len);
@@ -95,10 +95,11 @@ static void espnow_recv_task(void *args)
             // Send message to UART
             uart_write_bytes(UART_PORT_NUM, (const char *)packet, packet_len);
         }
-
-        // Free message and event
-        free(evt);
-        free(msg);
+        ++packet_count;
+        if (packet_count == 125){
+            packet_count = 0;
+            printf("received 125 packets\n");
+        }
     }
     ESP_LOGE(TAG, "Exited task espnow_recv_task loop");
 }
@@ -111,7 +112,7 @@ static void serial_mode_task(void *arg)
 
     // Configure UART
     uart_config_t uart_config = {
-        .baud_rate = 115200,
+        .baud_rate = 921600,
         .data_bits = UART_DATA_8_BITS,
         .parity = UART_PARITY_DISABLE,
         .stop_bits = UART_STOP_BITS_1,
@@ -126,6 +127,7 @@ static void serial_mode_task(void *arg)
     TickType_t xLastWakeTime = xTaskGetTickCount();
     while (1)
     {
+        printf("Serial Mode\n");
         // Read mac address and validate
         uint8_t mac_address[MAC_ADDR_LEN];
         uint8_t checksum_val;
@@ -156,7 +158,10 @@ static void serial_mode_task(void *arg)
         espnow_send_param_t send_param;
         memcpy(send_param.dest_mac, mac_address, MAC_ADDR_LEN);
         espnow_data_prepare(&send_param, packet, pkt_len);
-        esp_now_send(send_param.dest_mac, send_param.buffer, send_param.len);
+        if (esp_now_send(send_param.dest_mac, send_param.buffer, send_param.len) != ESP_OK)
+        {
+            ESP_LOGE(TAG, "Send error");
+        }
 
         // Check to see if send was successful
         espnow_event_send_t *send_evt;
@@ -174,30 +179,35 @@ void pilot_mode_task(void *arg)
     // Suspend immediately if in serial mode
     if (mode)
         vTaskSuspend(NULL);
-    int vy, vx;
+    int vyAdc, vxAdc;
     float max = 1.5;
-
+    esp_now_peer_info_t peer = peers[curr_bot];
+    espnow_send_param_t send_param;
+    memset(&send_param, 0, sizeof(espnow_send_param_t));
+    send_param.len = 0;
     while (1)
     {
-        adc_oneshot_get_calibrated_result(adc1_handle, JS_Y_cali, ADC_CHANNEL_3, &vy);
-        adc_oneshot_get_calibrated_result(adc1_handle, JS_X_cali, ADC_CHANNEL_4, &vx);
+        adc_oneshot_get_calibrated_result(adc1_handle, JS_Y_cali, ADC_CHANNEL_3, &vyAdc);
+        adc_oneshot_get_calibrated_result(adc1_handle, JS_X_cali, ADC_CHANNEL_4, &vxAdc);
 
         // printf("Vertical Voltage: %d\n", vy);
         // printf("Horizontal Voltage: %d\n", vx);
 
         // max out at 5 m/s
-        float vx = (abs(vy - joystick_y) > 50) ? vy * (2.0 * max) / 946.0 - max : 0;
-        float wz = (abs(vx - joystick_x) > 50) ? -vx * (6.0 * max) / 946.0 + 3 * max : 0;
+        float vx = (abs(vyAdc - joystick_y) > 50) ? vyAdc * (2.0 * max) / 946.0 - max : 0;
+        float wz = (abs(vxAdc - joystick_x) > 50) ? -vxAdc * (6.0 * max) / 946.0 + 3 * max : 0;
 
-        // printf("Forward Velocity: %f m/s\n", vx);
-        // printf("Turn Velocity: %f m/s\n", wz);
+        //printf("Forward Velocity: %f m/s\n", vx);
+        //printf("Turn Velocity: %f m/s\n", wz);
 
-        esp_now_peer_info_t peer = peers[curr_bot];
-        espnow_send_param_t send_param;
+        peer = peers[curr_bot];
+        ESP_LOGI(TAG, "sending to " MACSTR, MAC2STR(peer.peer_addr));
         memcpy(send_param.dest_mac, peer.peer_addr, MAC_ADDR_LEN);
         espnow_data_prepare(&send_param, command_serializer(vx, 0, wz), sizeof(serial_twist2D_t) + ROS_PKG_LEN);
-        esp_now_send(send_param.dest_mac, send_param.buffer, send_param.len);
-
+        if (esp_now_send(send_param.dest_mac, send_param.buffer, send_param.len) != ESP_OK)
+        {
+            ESP_LOGE(TAG, "Send error");
+        }
         // printf("GPIO17: %d\n", gpio_get_level(SW_PIN));
         
         vTaskDelay(pdMS_TO_TICKS(100));
@@ -226,10 +236,39 @@ void app_main()
     // Set the mode given the switch state defined in controller.c
     mode = !(bool)gpio_get_level(SW_PIN);
 
+    //TODO:Remove later -------------------------------------------------------------
+    uint8_t s_peer_mac[MAC_ADDR_LEN] = {0x48, 0x27, 0xE2, 0xFD, 0x59, 0xF1};
+    esp_now_peer_info_t *peer = malloc(sizeof(esp_now_peer_info_t));
+    if (peer == NULL)
+    {
+        ESP_LOGE(TAG, "Malloc peer information fail");
+        esp_now_deinit();
+        return;
+    }
+    memset(peer, 0, sizeof(esp_now_peer_info_t));
+    peer->channel = ESPNOW_CHANNEL;
+    peer->ifidx = ESPNOW_WIFI_IF;
+    peer->encrypt = false;
+    memcpy(peer->peer_addr, s_peer_mac, ESP_NOW_ETH_ALEN);
+    ESP_ERROR_CHECK(esp_now_add_peer(peer));
+    peers[0] = *peer;
+
+    uint8_t s_peer2_mac[MAC_ADDR_LEN] = {0xF4, 0x12, 0xFA, 0xFA, 0x07, 0x51};
+    memset(peer, 0, sizeof(esp_now_peer_info_t));
+    peer->channel = ESPNOW_CHANNEL;
+    peer->ifidx = ESPNOW_WIFI_IF;
+    peer->encrypt = false;
+    memcpy(peer->peer_addr, s_peer2_mac, ESP_NOW_ETH_ALEN);
+    ESP_ERROR_CHECK(esp_now_add_peer(peer));
+    peers[1] = *peer;
+    peer_num = 2;
+    curr_bot = 0;
+    //--------------------------------------------------------------------------------------
+
     // Create tasks
     xTaskCreate(espnow_recv_task, "espnow_recv_task", 4096, NULL, 4, NULL);
     xTaskCreate(serial_mode_task, "serial_mode_task", 2048, NULL, 1, &serialMode);
-    xTaskCreate(pilot_mode_task, "pilot_mode_task", 2048, NULL, 1, &controllerMode);
+    xTaskCreate(pilot_mode_task, "pilot_mode_task", 4096, NULL, 1, &controllerMode);
 
     // for debugging
     // xTaskCreate(print_task, "print_task", 2048, NULL, 3, NULL);

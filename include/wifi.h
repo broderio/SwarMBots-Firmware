@@ -16,11 +16,8 @@
 #define ESPNOW_QUEUE_SIZE 6
 #define MAC_ADDR_LEN 6
 
-static uint8_t s_host_mac[MAC_ADDR_LEN] = {0xF4, 0x12, 0xFA, 0xFA, 0x11, 0xe1};
+//static uint8_t s_host_mac[MAC_ADDR_LEN] = {0xF4, 0x12, 0xFA, 0xFA, 0x11, 0xe1};
 #define IS_BROADCAST_ADDR(addr) (memcmp(addr, s_host_mac, MAC_ADDR_LEN) == 0)
-
-static esp_now_peer_info_t peers[8];
-static int peer_num = 0;
 
 const char *TAG = "WIFI";
 static QueueHandle_t espnow_send_queue;
@@ -134,52 +131,56 @@ static void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *
 // params 1 and 2 are raw data info, params 3-n are data fields to populate
 int espnow_data_parse(uint8_t *data, uint16_t data_len, uint8_t *msg, uint16_t *len)
 {
-    // Cast data byte array to buffer struct
     comm_espnow_data_t *buf = (comm_espnow_data_t *)data;
+    uint16_t crc, crc_cal = 0;
 
-    // Check if data length is correct
+    if (data_len < sizeof(comm_espnow_data_t))
+    {
+        ESP_LOGE(TAG, "Receive ESPNOW data too short, len:%d", data_len);
+        return -1;
+    }
     if (data_len != sizeof(comm_espnow_data_t) + buf->len)
     {
         ESP_LOGE(TAG, "Receive ESPNOW data has wrong length, len:%d, expected len:%d", data_len, sizeof(comm_espnow_data_t) + buf->len);
         return -1;
     }
+    *len = buf->len < ESPNOW_DATA_MAX_LEN ? buf->len : ESPNOW_DATA_MAX_LEN;
+    memcpy(msg, buf->payload, *len);
 
-    // Check if CRC matches
-    uint16_t crc_cal = esp_crc16_le(UINT16_MAX, (uint8_t const *)buf, data_len);
-    if (crc_cal != buf->crc)
-        return -1;
+    crc = buf->crc;
+    buf->crc = 0;
+    crc_cal = esp_crc16_le(UINT16_MAX, (uint8_t const *)buf, data_len);
 
-    // Copy payload to msg
-    memcpy(msg, buf->payload, buf->len);
-    *len = buf->len;
+    if (crc_cal == crc)
+    {
+        return 0;
+    }
 
-    return 0;
+    return -1;
 }
 
 // Prepare ESPNOW data to be sent.
 // data: data payload to be sent ; len: length of data in Bytes
 void espnow_data_prepare(espnow_send_param_t *send_param, uint8_t *data, int len)
 {
-    // Check if length is valid
-    send_param->len = len + sizeof(comm_espnow_data_t);
-    assert(send_param->len <= ESPNOW_DATA_MAX_LEN);
-
-    // Allocate memory for sending
-    send_param->buffer = malloc(send_param->len);
-    if (send_param->buffer == NULL)
-    {
-        ESP_LOGE(TAG, "Malloc send buffer fail");
-        return;
-    }
-    memset(send_param->buffer, 0, send_param->len);
-
-    // Cast buffer to struct
+    printf("preparing\n");
+    send_param->buffer = data;
     comm_espnow_data_t *buf = (comm_espnow_data_t *)send_param->buffer;
-
-    // Fill in fields
+    printf("set and formatted buffer and buf\n");
+    send_param->len = len + sizeof(comm_espnow_data_t);
+    assert(len <= ESPNOW_DATA_MAX_LEN);
+    printf("passed assert\n");
+    buf->crc = 0;
     buf->len = len;
-    memcpy(buf->payload, data, len);
-    buf->crc = esp_crc16_le(UINT16_MAX, (uint8_t const *)buf, send_param->len);
+    printf("passed buf references\n");
+    /* Only fill payload if there is room to fit it */
+    if (sizeof(comm_espnow_data_t) + buf->len <= send_param->len)
+    {
+        memcpy(buf->payload, data, len);
+    }
+    printf("passed if\n");
+    buf->crc = esp_crc16_le(UINT16_MAX, (uint8_t const *)buf, send_param->len); // compute checksum to send with packet
+    printf("computed checksum\n");
 }
 
 static void espnow_init()
@@ -205,6 +206,7 @@ static void espnow_init()
 }
 
 // handles error by cleaning up param and deinitializing wifi
+//TODO: this function already exists in espnow.h...
 static void espnow_deinit()
 {
     vSemaphoreDelete(espnow_send_queue);

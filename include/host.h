@@ -8,4 +8,7 @@
 #define B2_PIN 10
 #define SW_PIN 17
 
+static esp_now_peer_info_t peers[8];
+static int peer_num = 0;
+
 #endif
