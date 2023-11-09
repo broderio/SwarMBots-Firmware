@@ -59,11 +59,15 @@ static void espnow_recv_task(void *args)
         ESP_LOGI(TAG, "Could not get mac address, error code %d", err);
     }
 
+    // Delay for 1 second
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+
     // Print host mac address
-    printf("Host MAC: " MACSTR "\n", MAC2STR(mac));
+    ESP_LOGI(TAG, "Host MAC: " MACSTR, MAC2STR(mac));
 
     while (xQueueReceive(espnow_recv_queue, &evt, portMAX_DELAY) == pdTRUE)
     {
+        ESP_LOGI(TAG, "Received data from: " MACSTR ", len: %d", MAC2STR(evt->mac_addr), evt->data_len);
         // Parse incoming packet
         ret = espnow_data_parse(evt->data, evt->data_len, &msg, &data_len);
         free(evt->data);

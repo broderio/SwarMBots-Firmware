@@ -50,8 +50,10 @@ static void espnow_recv_task(void *args)
         ESP_LOGI(TAG, "Could not get mac address, error code %d", err);
     }
 
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+
     // Print client mac address
-    printf("Client MAC: " MACSTR "\n", MAC2STR(mac));
+    ESP_LOGI(TAG, "Client MAC: " MACSTR, MAC2STR(mac));
 
     spi_slave_transaction_t t;
     while (xQueueReceive(espnow_recv_queue, &evt, portMAX_DELAY) == pdTRUE)
@@ -99,11 +101,11 @@ static void espnow_recv_task(void *args)
             xSemaphoreGive(spi_mutex);
             if (ret != ESP_OK)
             {
-                printf("Error transmitting: 0x%x\n", ret);
+                ESP_LOGI(TAG, "Error transmitting: 0x%x", ret);
                 continue;
             }
         }
-        printf("Sent %zu bytes\n", t.trans_len / 8);
+        ESP_LOGI(TAG, "Sent %zu bytes\n", t.trans_len / 8);
     }
 }
 
@@ -115,14 +117,15 @@ void espnow_send_task(void *args)
     while (1)
     {
         // TODO: change this so we block instead of busy waiting
-        if (!found_host)
+        if (!found_host) {
+            vTaskDelay(100 / portTICK_PERIOD_MS);
             continue;
+        }
 
         t.length = 84 * 8;
         t.tx_buffer = NULL;
         t.rx_buffer = recvbuf;
 
-        // printf("Waiting for packet...\n");
         if (xSemaphoreTake(spi_mutex, portMAX_DELAY) == pdTRUE) {
             ret = spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
             xSemaphoreGive(spi_mutex);
@@ -140,6 +143,12 @@ void espnow_send_task(void *args)
         memcpy(send_param.dest_mac, host_mac_addr, MAC_ADDR_LEN);
         espnow_data_prepare(&send_param, t.rx_buffer, t.trans_len / 8);
         esp_now_send(send_param.dest_mac, send_param.buffer, send_param.len);
+
+        // Check to see if send was successful
+        espnow_event_send_t *send_evt;
+        if (xQueueReceive(espnow_send_queue, &send_evt, 0) != pdTRUE) {
+            ESP_LOGE(TAG, "Send failed");
+        }
     }
 }
 
@@ -155,14 +164,13 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
-    printf("Initializing WiFi...\n");
+    ESP_LOGI(TAG, "Initializing WiFi...");
     wifi_init();
 
-    printf("Initializing ESP-NOW...\n");
-
+    ESP_LOGI(TAG, "Initializing ESP-NOW...");
     espnow_init();
 
-    printf("Initializing SPI...\n");
+    ESP_LOGI(TAG, "Initializing SPI...");
     spi_init();
 
     // Create mutex for SPI
