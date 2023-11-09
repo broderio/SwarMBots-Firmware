@@ -59,7 +59,7 @@ typedef struct
 static void wifi_init(void);
 static void espnow_send_cb(const uint8_t *mac_addr, esp_now_send_status_t status);
 static void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len);
-int espnow_data_parse(uint8_t *data, uint16_t data_len, uint8_t *msg, int *len);
+int espnow_data_parse(uint8_t *data, uint16_t data_len, uint8_t **msg, uint16_t *len);
 void espnow_data_prepare(espnow_send_param_t *send_param, uint8_t *data, int len);
 static void espnow_init();
 static void espnow_deinit();
@@ -133,7 +133,7 @@ static void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *
 
 /* Parse received ESPNOW data. */
 // params 1 and 2 are raw data info, params 3-n are data fields to populate
-int espnow_data_parse(uint8_t *data, uint16_t data_len, uint8_t *msg, int *len)
+int espnow_data_parse(uint8_t *data, uint16_t data_len, uint8_t **msg, uint16_t *len)
 {
     // Cast data byte array to buffer struct
     comm_espnow_data_t *buf = (comm_espnow_data_t *)data;
@@ -145,13 +145,16 @@ int espnow_data_parse(uint8_t *data, uint16_t data_len, uint8_t *msg, int *len)
         return -1;
     }
 
+    // Allocate message data
+    *msg = malloc(buf->len);
+
     // Check if CRC matches
     uint16_t crc_cal = esp_crc16_le(UINT16_MAX, (uint8_t const *)buf, data_len);
     if (crc_cal != buf->crc)
         return -1;
 
     // Copy payload to msg
-    memcpy(msg, buf->payload, buf->len);
+    memcpy(*msg, buf->payload, buf->len);
     *len = buf->len;
 
     return 0;

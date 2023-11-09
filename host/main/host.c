@@ -3,8 +3,6 @@
 #include "freertos/semphr.h"
 #include "freertos/timers.h"
 
-#include "driver/uart.h"
-
 #include "nvs_flash.h"
 #include "esp_netif.h"
 #include "esp_wifi.h"
@@ -51,7 +49,7 @@ static void espnow_recv_task(void *args)
 {
     espnow_event_recv_t *evt;
     uint8_t *msg;
-    int data_len;
+    uint16_t data_len;
     int ret;
 
     uint8_t mac[MAC_ADDR_LEN];
@@ -66,17 +64,8 @@ static void espnow_recv_task(void *args)
 
     while (xQueueReceive(espnow_recv_queue, &evt, portMAX_DELAY) == pdTRUE)
     {
-        // Allocate memory for message
-        int msg_len = data_len + MAC_ADDR_LEN + 1;
-        msg = malloc(msg_len);
-        if (msg == NULL)
-        {
-            ESP_LOGE(TAG, "Malloc msg fail");
-            continue;
-        }
-
         // Parse incoming packet
-        ret = espnow_data_parse(evt->data, evt->data_len, msg, &data_len);
+        ret = espnow_data_parse(evt->data, evt->data_len, &msg, &data_len);
         free(evt->data);
 
         // Check if data is invalid
@@ -89,12 +78,18 @@ static void espnow_recv_task(void *args)
         // Check if mac address is paired
         if (esp_now_is_peer_exist(evt->mac_addr))
         {
-            // Add mac address and checksum to end of message
-            memcpy(msg + data_len, evt->mac_addr, MAC_ADDR_LEN);
-            msg[data_len + MAC_ADDR_LEN] = checksum(evt->mac_addr, MAC_ADDR_LEN);
+            // Create BOTPKT
+            size_t packet_len = data_len + MAC_ADDR_LEN + 4;
+            uint8_t* packet = malloc(packet_len);
+            packet[0] = 0xff;
+            packet[1] = (uint8_t) (data_len%255);
+            packet[2] = (uint8_t) (data_len>>8);
+            memcpy(packet + 3, evt->mac_addr, MAC_ADDR_LEN);
+            msg[MAC_ADDR_LEN + 4] = checksum(evt->mac_addr, MAC_ADDR_LEN);
+            memcpy(packet + MAC_ADDR_LEN + 4, msg, data_len);
 
             // Send message to UART
-            uart_write_bytes(UART_PORT_NUM, (const char *)msg, msg_len);
+            uart_write_bytes(UART_PORT_NUM, (const char *)packet, packet_len);
         }
 
         // Free message and event
@@ -126,24 +121,17 @@ static void serial_mode_task(void *arg)
     TickType_t xLastWakeTime = xTaskGetTickCount();
     while (1)
     {
-        // Find valid header
-        uint8_t header_data[ROS_HEADER_LEN];
-        read_header(header_data);
-        if (!validate_header(header_data))
-            continue; // continue if header is invalid
-        
-        // Read message data
-        uint16_t msg_len = ((uint16_t)header_data[3] << 8) + (uint16_t)header_data[2];
-        uint8_t msg_data_serialized[msg_len];
-        char topic_msg_data_checksum = 0;
-        read_message(msg_data_serialized, msg_len, &topic_msg_data_checksum);
-
         // Read mac address and validate
         uint8_t mac_address[MAC_ADDR_LEN];
         uint8_t checksum_val;
-        read_mac_address(mac_address, &checksum_val);
-        if (!validate_mac_address(mac_address, checksum_val))
+        uint16_t pkt_len;
+        read_mac_address(mac_address, &pkt_len, &checksum_val);
+        if (!validate_mac_address(mac_address, pkt_len, checksum_val))
             continue; // continue if mac address is invalid
+        
+        // Read the ROSPKT
+        uint8_t* packet = malloc(pkt_len);
+        read_packet(packet, pkt_len);
 
         // Add peer if mac address is not already
         if (!esp_now_is_peer_exist(mac_address)) {
@@ -160,20 +148,19 @@ static void serial_mode_task(void *arg)
             ESP_ERROR_CHECK(esp_now_add_peer(peer));
         }
 
-        // Reconstruct packet without mac address
-        size_t data_len = msg_len + ROS_PKG_LEN;
-        uint8_t* data = malloc(data_len);
-        memcpy(data, header_data, ROS_HEADER_LEN);
-        memcpy(data + ROS_HEADER_LEN, msg_data_serialized, msg_len);
-        memcpy(data + ROS_HEADER_LEN + msg_len, &topic_msg_data_checksum, 1);
-
         // Send packet to client
         espnow_send_param_t send_param;
         memcpy(send_param.dest_mac, mac_address, MAC_ADDR_LEN);
-        send_to_client(&send_param, data, data_len);
+        send_to_client(&send_param, packet, pkt_len);
+
+        // Check to see if send was successful
+        espnow_event_send_t *send_evt;
+        if (xQueueReceive(espnow_send_queue, &send_evt, 0) != pdTRUE) {
+            ESP_LOGE(TAG, "Send failed");
+        }
 
         // Free data
-        free(data);
+        free(packet);
 
         xTaskDelayUntil(&xLastWakeTime, 1);
     }
@@ -237,9 +224,9 @@ void app_main()
     mode = !(bool)gpio_get_level(SW_PIN);
 
     // Create tasks
-    xTaskCreate(espnow_recv_task, "host_espnow_task", 4096, NULL, 4, NULL);
-    xTaskCreate(serial_mode_task, "uart_in_task", 2048, NULL, 1, &serialMode);
-    xTaskCreate(pilot_mode_task, "read_joystick_task", 2048, NULL, 1, &controllerMode);
+    xTaskCreate(espnow_recv_task, "espnow_recv_task", 4096, NULL, 4, NULL);
+    xTaskCreate(serial_mode_task, "serial_mode_task", 2048, NULL, 1, &serialMode);
+    xTaskCreate(pilot_mode_task, "pilot_mode_task", 2048, NULL, 1, &controllerMode);
 
     // for debugging
     // xTaskCreate(print_task, "print_task", 2048, NULL, 3, NULL);

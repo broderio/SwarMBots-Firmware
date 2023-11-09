@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <memory.h>
+#include "driver/uart.h"
 #include "wifi.h"
 
 #ifndef COMMS_COMMONS_H
@@ -38,13 +39,15 @@ enum message_topics{
 };
 
 uint8_t checksum(uint8_t* addends, int len);
+void read_mac_address(uint8_t* mac_address, uint16_t* pkt_len, uint8_t* checksum_val);
 void read_header(uint8_t* header_data);
 void read_message(uint8_t* msg_data_serialized, uint16_t message_len, char* topic_msg_data_checksum);
-void read_mac_address(uint8_t* mac_address, uint8_t* checksum_val);
+void read_packet(uint8_t* pkt_data, uint16_t pkt_len);
 int validate_header(uint8_t* header_data);
 int validate_message(uint8_t* header_data, uint8_t* msg_data_serialized, uint16_t message_len, char topic_msg_data_checksum);
-int validate_mac_address(uint8_t* mac_address, uint8_t checksum_val);
+int validate_mac_address(uint8_t* mac_address, uint16_t pkt_len, uint8_t checksum_val);
 int encode_msg(uint8_t* MSG, int msg_len, uint16_t TOPIC, uint8_t* ROSPKT, int rospkt_len);
+
 
 uint8_t checksum(uint8_t* addends, int len) {
     //takes in an array and sums the contents then checksums the array
@@ -55,14 +58,19 @@ uint8_t checksum(uint8_t* addends, int len) {
     return 255 - ( ( sum ) % 256 );
 }
 
-void read_header(uint8_t* header_data) {
+void read_mac_address(uint8_t* mac_address, uint16_t* pkt_len, uint8_t* checksum_val) {
     uint8_t trigger_val = 0x00;
     while(trigger_val != 0xff)
     {
         uart_read_bytes(0, &trigger_val, 1, 1);
     }
-    header_data[0] = trigger_val;
-    uart_read_bytes(0, &header_data[1], ROS_HEADER_LEN - 1, 1);
+    uart_read_bytes(0, pkt_len, 2, 1);
+    uart_read_bytes(0, mac_address, MAC_ADDR_LEN, 1);
+    uart_read_bytes(0, checksum_val, 1, 1);
+}
+
+void read_header(uint8_t* header_data) {
+    uart_read_bytes(0, header_data, ROS_HEADER_LEN, 1);
 }
 
 void read_message(uint8_t* msg_data_serialized, uint16_t message_len, char* topic_msg_data_checksum) {
@@ -70,9 +78,16 @@ void read_message(uint8_t* msg_data_serialized, uint16_t message_len, char* topi
     uart_read_bytes(0, topic_msg_data_checksum, 1, 1);
 }
 
-void read_mac_address(uint8_t* mac_address, uint8_t* checksum_val) {
-    uart_read_bytes(0, mac_address, MAC_ADDR_LEN, 1);
-    uart_read_bytes(0, checksum_val, 1, 1);
+void read_packet(uint8_t* pkt_data, uint16_t pkt_len) {
+    uart_read_bytes(0, pkt_data, pkt_len, 1);
+}
+
+int validate_mac_address(uint8_t* mac_address, uint16_t pkt_len, uint8_t checksum_val) {
+    uint8_t cs_addends[MAC_ADDR_LEN + 2];
+    memcpy(cs_addends, mac_address, MAC_ADDR_LEN);
+    cs_addends[6] = (uint8_t) (pkt_len%255);
+    cs_addends[7] = (uint8_t) (pkt_len>>8);
+    return checksum(cs_addends, MAC_ADDR_LEN + 2) == checksum_val;
 }
 
 // Function to validate the header
@@ -97,9 +112,6 @@ int validate_message(uint8_t* header_data, uint8_t* msg_data_serialized, uint16_
     return valid_message;
 }
 
-int validate_mac_address(uint8_t* mac_address, uint8_t checksum_val) {
-    return checksum(mac_address, MAC_ADDR_LEN) == checksum_val;
-}
 
 int32_t bytes_to_int32(uint8_t bytes[4]) {
     //bit shift up each bytes array to the proper location and concatenate before casting to the int32_t datatype
