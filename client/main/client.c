@@ -39,7 +39,7 @@ uint8_t host_mac_addr[MAC_ADDR_LEN];
 static void espnow_recv_task(void *args)
 {
     espnow_event_recv_t *evt;
-    uint8_t *msg;
+    uint8_t msg[ESPNOW_DATA_MAX_LEN];
     uint16_t data_len;
     int ret;
 
@@ -59,13 +59,12 @@ static void espnow_recv_task(void *args)
     while (xQueueReceive(espnow_recv_queue, &evt, portMAX_DELAY) == pdTRUE)
     {
         // Parse incoming packet
-        ret = espnow_data_parse(evt->data, evt->data_len, &msg, &data_len);
+        ret = espnow_data_parse(evt->data, evt->data_len, msg, &data_len);
         free(evt->data);
 
         // Check if data is invalid
         if (ret < 0) {
             ESP_LOGE(TAG, "Receive invalid data");
-            free(msg);
             continue;
         }
 
