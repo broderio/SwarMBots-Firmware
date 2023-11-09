@@ -122,6 +122,7 @@ static void serial_mode_task(void *arg)
     ESP_ERROR_CHECK(uart_driver_install(0, 2 * ESPNOW_DATA_MAX_LEN, 0, 0, NULL, intr_alloc_flags));
     ESP_ERROR_CHECK(uart_param_config(UART_PORT_NUM, &uart_config));
 
+    uint8_t packet[ESPNOW_DATA_MAX_LEN];
     TickType_t xLastWakeTime = xTaskGetTickCount();
     while (1)
     {
@@ -134,7 +135,6 @@ static void serial_mode_task(void *arg)
             continue; // continue if mac address is invalid
         
         // Read the ROSPKT
-        uint8_t* packet = malloc(pkt_len);
         read_packet(packet, pkt_len);
 
         // Add peer if mac address is not already
@@ -163,10 +163,7 @@ static void serial_mode_task(void *arg)
         if (xQueueReceive(espnow_send_queue, &send_evt, 0) != pdTRUE) {
             ESP_LOGE(TAG, "Send failed");
         }
-
-        // Free data
-        free(packet);
-
+        
         xTaskDelayUntil(&xLastWakeTime, 1);
     }
     ESP_LOGE(TAG, "Exited task uart_in_task loop");
@@ -200,7 +197,7 @@ void pilot_mode_task(void *arg)
         memcpy(send_param.dest_mac, peer.peer_addr, MAC_ADDR_LEN);
         espnow_data_prepare(&send_param, command_serializer(vx, 0, wz), sizeof(serial_twist2D_t) + ROS_PKG_LEN);
         esp_now_send(send_param.dest_mac, send_param.buffer, send_param.len);
-        
+
         // printf("GPIO17: %d\n", gpio_get_level(SW_PIN));
         
         vTaskDelay(pdMS_TO_TICKS(100));
