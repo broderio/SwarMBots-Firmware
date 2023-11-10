@@ -23,18 +23,6 @@ const char *TAG = "WIFI";
 static QueueHandle_t espnow_send_queue;
 static QueueHandle_t espnow_recv_queue;
 
-typedef struct
-{
-    uint8_t mac_addr[MAC_ADDR_LEN];
-    esp_now_send_status_t status;
-} espnow_event_send_t;
-
-typedef struct
-{
-    uint8_t mac_addr[MAC_ADDR_LEN];
-    uint8_t *data;
-    int data_len;
-} espnow_event_recv_t;
 
 /* User defined field of ESPNOW data. */
 // this should be the same between client and client
@@ -52,6 +40,20 @@ typedef struct
     uint8_t buffer[ESPNOW_DATA_MAX_LEN];              // Buffer pointing to ESPNOW data.
     uint8_t dest_mac[MAC_ADDR_LEN]; // MAC address of destination device.
 } espnow_send_param_t;
+
+
+typedef struct
+{
+    uint8_t mac_addr[MAC_ADDR_LEN];
+    uint8_t *data;
+    int data_len;
+} espnow_event_recv_t;
+
+typedef struct
+{
+    uint8_t mac_addr[MAC_ADDR_LEN];
+    esp_now_send_status_t status;
+} espnow_event_send_t;
 
 static void wifi_init(void);
 static void espnow_send_cb(const uint8_t *mac_addr, esp_now_send_status_t status);

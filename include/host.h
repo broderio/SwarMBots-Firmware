@@ -11,4 +11,14 @@
 static esp_now_peer_info_t peers[8];
 static int peer_num = 0;
 
+void add_peer(uint8_t* mac_address) {
+    memset(&peers[peer_num], 0, sizeof(esp_now_peer_info_t));
+    peers[peer_num].channel = ESPNOW_CHANNEL;
+    peers[peer_num].ifidx = ESPNOW_WIFI_IF;
+    peers[peer_num].encrypt = false;
+    memcpy(peers[peer_num].peer_addr, mac_address, ESP_NOW_ETH_ALEN);
+    ESP_ERROR_CHECK(esp_now_add_peer(&peers[peer_num]));
+    peer_num++;
+}
+
 #endif

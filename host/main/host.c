@@ -236,36 +236,12 @@ void app_main()
     // Set the mode given the switch state defined in controller.c
     mode = !(bool)gpio_get_level(SW_PIN);
 
-    //TODO:Remove later -------------------------------------------------------------
-    esp_now_peer_info_t *peer = malloc(sizeof(esp_now_peer_info_t));
-    if (peer == NULL)
-    {
-        ESP_LOGE(TAG, "Malloc peer information fail");
-        esp_now_deinit();
-        return;
-    }
-    
     uint8_t s_peer_mac[MAC_ADDR_LEN] = {0xF4, 0x12, 0xFA, 0xFA, 0x07, 0x51};
-    memset(peer, 0, sizeof(esp_now_peer_info_t));
-    peer->channel = ESPNOW_CHANNEL;
-    peer->ifidx = ESPNOW_WIFI_IF;
-    peer->encrypt = false;
-    memcpy(peer->peer_addr, s_peer_mac, ESP_NOW_ETH_ALEN);
-    ESP_ERROR_CHECK(esp_now_add_peer(peer));
-    peers[0] = *peer;
+    add_peer(s_peer_mac);
 
     uint8_t s_peer2_mac[MAC_ADDR_LEN] = {0x48, 0x27, 0xE2, 0xFD, 0x59, 0xF1};
-    memset(peer, 0, sizeof(esp_now_peer_info_t));
-    peer->channel = ESPNOW_CHANNEL;
-    peer->ifidx = ESPNOW_WIFI_IF;
-    peer->encrypt = false;
-    memcpy(peer->peer_addr, s_peer2_mac, ESP_NOW_ETH_ALEN);
-    ESP_ERROR_CHECK(esp_now_add_peer(peer));
-    peers[1] = *peer;
-    peer_num = 2;
-    curr_bot = 0;
-    //--------------------------------------------------------------------------------------
-
+    add_peer(s_peer2_mac);
+    
     // Create tasks
     xTaskCreate(espnow_recv_task, "espnow_recv_task", 4096, NULL, 4, NULL);
     xTaskCreate(serial_mode_task, "serial_mode_task", 2048, NULL, 1, &serialMode);
