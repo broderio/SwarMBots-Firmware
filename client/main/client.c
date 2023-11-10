@@ -62,7 +62,7 @@ static void espnow_recv_task(void *args)
         // Parse incoming packet
         ret = espnow_data_parse(evt->data, evt->data_len, msg, &data_len);
         free(evt->data);
-
+        printf("receivinhg\n");
         // Check if data is invalid
         if (ret != 0) {
             ESP_LOGE(TAG, "Received invalid data");
@@ -144,7 +144,7 @@ void espnow_send_task(void *args)
 
         // Check to see if send was successful
         espnow_event_send_t *send_evt;
-        if (xQueueReceive(espnow_send_queue, &send_evt, 0) != pdTRUE) {
+        if (xQueueReceive(espnow_send_queue, &send_evt, portMAX_DELAY) != pdTRUE) {
             ESP_LOGE(TAG, "Send failed");
         }
     }

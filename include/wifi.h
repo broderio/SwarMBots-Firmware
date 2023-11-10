@@ -158,11 +158,11 @@ int espnow_data_parse(uint8_t *data, uint16_t data_len, uint8_t *msg, uint16_t *
 void espnow_data_prepare(espnow_send_param_t *send_param, uint8_t *data, int len)
 {
     // Check if length is valid
-    int send_param_len = len + sizeof(comm_espnow_data_t);
-    if (send_param_len <= ESPNOW_DATA_MAX_LEN) {
+    if (len > ESPNOW_DATA_MAX_LEN) {
         ESP_LOGE(TAG, "Data too long");
         return;
     }
+    int send_param_len = len + sizeof(comm_espnow_data_t);
     send_param->len = send_param_len;
 
     // Set memory for sending
