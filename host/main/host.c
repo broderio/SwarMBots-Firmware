@@ -36,7 +36,7 @@ static void print_task(void *arg)
                 printf("Button Down\n");
             else
             {
-                if (!mode)
+                if (!doSerial)
                     printf("Controller mode\n");
                 else
                     printf("Serial Mode\n");
@@ -103,8 +103,7 @@ static void espnow_recv_task(void *args)
         memcpy(packet + MAC_ADDR_LEN + 4, msg, data_len);
 
         // Send message to UART
-        uart_write_bytes(UART_PORT_NUM, (const char *)packet, packet_len);
-        printf("\n\n"); //newlines for readability
+        //uart_write_bytes(UART_PORT_NUM, (const char *)packet, packet_len);
     }
     ESP_LOGE(TAG, "Exited task espnow_recv_task loop");
 }
@@ -112,7 +111,7 @@ static void espnow_recv_task(void *args)
 static void serial_mode_task(void *arg)
 {
     // Suspend immediately if in controller mode
-    if (!mode)
+    if (!doSerial)
         vTaskSuspend(NULL);
 
     // Configure UART
@@ -170,7 +169,7 @@ static void serial_mode_task(void *arg)
 
         // Check to see if send was successful
         espnow_event_send_t *send_evt;
-        if (xQueueReceive(espnow_send_queue, &send_evt, 0) != pdTRUE) {
+        if (xQueueReceive(espnow_send_queue, &send_evt, 1) != pdTRUE) {
             ESP_LOGE(TAG, "Send failed");
         }
         
@@ -181,8 +180,11 @@ static void serial_mode_task(void *arg)
 
 void pilot_mode_task(void *arg)
 {
+    TickType_t lastTick = xTaskGetTickCount();
+    int count = 0;
+
     // Suspend immediately if in serial mode
-    if (mode)
+    if (doSerial)
         vTaskSuspend(NULL);
     int vyAdc, vxAdc;
     float max = 1.5;
@@ -192,6 +194,7 @@ void pilot_mode_task(void *arg)
     send_param.len = 0;
     while (1)
     {
+        
         adc_oneshot_get_calibrated_result(adc1_handle, JS_Y_cali, ADC_CHANNEL_3, &vyAdc);
         adc_oneshot_get_calibrated_result(adc1_handle, JS_X_cali, ADC_CHANNEL_4, &vxAdc);
 
@@ -206,16 +209,29 @@ void pilot_mode_task(void *arg)
         //printf("Turn Velocity: %f m/s\n", wz);
 
         peer = peers[curr_bot];
-        ESP_LOGI(TAG, "sending to " MACSTR, MAC2STR(peer.peer_addr));
+        printf("sending to " MACSTR"\n", MAC2STR(peer.peer_addr));
         memcpy(send_param.dest_mac, peer.peer_addr, MAC_ADDR_LEN);
-        espnow_data_prepare(&send_param, command_serializer(vx, 0, wz), sizeof(serial_twist2D_t) + ROS_PKG_LEN);
-        if (esp_now_send(send_param.dest_mac, send_param.buffer, send_param.len) != ESP_OK)
+        uint8_t* packet = command_serializer(vx, 0, wz);
+        espnow_data_prepare(&send_param, packet, sizeof(serial_twist2D_t) + ROS_PKG_LEN);
+        free(packet);
+        printf("Heap size (at start) %lu\n", esp_get_free_heap_size());
+
+        esp_err_t err = esp_now_send(send_param.dest_mac, send_param.buffer, send_param.len);
+        if (err != ESP_OK)
         {
-            ESP_LOGE(TAG, "Send error");
+            ESP_LOGE(TAG, "Send error %s", esp_err_to_name(err));
+        }
+
+        // Check to see if send was successful
+        espnow_event_send_t *send_evt;
+        if (xQueueReceive(espnow_send_queue, &send_evt, 1) != pdTRUE) {
+            ESP_LOGE(TAG, "Send failed");
         }
         // printf("GPIO17: %d\n", gpio_get_level(SW_PIN));
-        
-        vTaskDelay(pdMS_TO_TICKS(100));
+        printf("Heap size (at end) %lu\n", esp_get_free_heap_size());
+        count = 0;
+
+        vTaskDelayUntil(&lastTick, 1000 / portTICK_PERIOD_MS);
     }
 }
 
@@ -239,9 +255,8 @@ void app_main()
     calibrate_joystick(&joystick_x, &joystick_y, 1000);
 
     // Set the mode given the switch state defined in controller.c
-    mode = !(bool)gpio_get_level(SW_PIN);
-
-    uint8_t s_peer_mac[MAC_ADDR_LEN] = {0xF4, 0x12, 0xFA, 0xFA, 0x07, 0x51};
+    doSerial = !(bool)gpio_get_level(SW_PIN);
+    uint8_t s_peer_mac[MAC_ADDR_LEN] = {0x48, 0x27, 0xE2, 0xFD, 0x65, 0xD1};
     add_peer(s_peer_mac);
 
     uint8_t s_peer2_mac[MAC_ADDR_LEN] = {0x48, 0x27, 0xE2, 0xFD, 0x59, 0xF1};

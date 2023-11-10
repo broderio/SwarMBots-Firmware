@@ -62,7 +62,7 @@ static void espnow_recv_task(void *args)
         // Parse incoming packet
         ret = espnow_data_parse(evt.data, evt.data_len, msg, &data_len);
         free(evt.data);
-        printf("receivinhg\n");
+        printf("receiving\n");
         // Check if data is invalid
         if (ret != 0) {
             ESP_LOGE(TAG, "Received invalid data");
@@ -99,7 +99,8 @@ static void espnow_recv_task(void *args)
         t.trans_len = 0; //REMOVE LATER
 
         if (xSemaphoreTake(spi_mutex, portMAX_DELAY) == pdTRUE) {
-            ret = ESP_OK; //spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
+            ret = ESP_OK; 
+            spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
             xSemaphoreGive(spi_mutex);
             if (ret != ESP_OK)
             {
@@ -137,7 +138,7 @@ void espnow_send_task(void *args)
         if (t.trans_len && t.trans_len > t.length)
             continue;
         espnow_send_param_t send_param;
-        printf("sending to " MACSTR"\n", MAC2STR(send_param.dest_mac));
+        //printf("sending to " MACSTR"\n", MAC2STR(send_param.dest_mac));
         memcpy(send_param.dest_mac, host_mac_addr, MAC_ADDR_LEN);
         espnow_data_prepare(&send_param, t.rx_buffer, t.trans_len / 8);
         esp_now_send(send_param.dest_mac, send_param.buffer, send_param.len);
