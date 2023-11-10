@@ -142,7 +142,7 @@ int espnow_data_parse(uint8_t *data, uint16_t data_len, uint8_t *msg, uint16_t *
     }
 
     // Check if CRC matches
-    uint16_t crc_cal = esp_crc16_le(UINT16_MAX, (uint8_t const *)buf, data_len);
+    uint16_t crc_cal = esp_crc16_le(UINT16_MAX, (uint8_t const *)buf->payload, buf->len);
     if (crc_cal != buf->crc)
         return -1;
 
@@ -152,7 +152,6 @@ int espnow_data_parse(uint8_t *data, uint16_t data_len, uint8_t *msg, uint16_t *
 
     return 0;
 }
-
 
 // Prepare ESPNOW data to be sent.
 // data: data payload to be sent ; len: length of data in Bytes
@@ -175,7 +174,7 @@ void espnow_data_prepare(espnow_send_param_t *send_param, uint8_t *data, int len
     // Fill in fields
     buf->len = len;
     memcpy(buf->payload, data, len);
-    buf->crc = esp_crc16_le(UINT16_MAX, (uint8_t const *)buf, send_param->len);
+    buf->crc = esp_crc16_le(UINT16_MAX, (uint8_t const *)buf->payload, buf->len);
 }
 
 static void espnow_init()
