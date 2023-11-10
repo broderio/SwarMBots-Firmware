@@ -49,7 +49,7 @@ typedef struct
 typedef struct
 {
     int len;                        // Length of ESPNOW data to be sent (buffer), unit: byte.
-    uint8_t *buffer;              // Buffer pointing to ESPNOW data.
+    uint8_t buffer[ESPNOW_DATA_MAX_LEN];              // Buffer pointing to ESPNOW data.
     uint8_t dest_mac[MAC_ADDR_LEN]; // MAC address of destination device.
 } espnow_send_param_t;
 
@@ -131,56 +131,51 @@ static void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *
 // params 1 and 2 are raw data info, params 3-n are data fields to populate
 int espnow_data_parse(uint8_t *data, uint16_t data_len, uint8_t *msg, uint16_t *len)
 {
+    // Cast data byte array to buffer struct
     comm_espnow_data_t *buf = (comm_espnow_data_t *)data;
-    uint16_t crc, crc_cal = 0;
 
-    if (data_len < sizeof(comm_espnow_data_t))
-    {
-        ESP_LOGE(TAG, "Receive ESPNOW data too short, len:%d", data_len);
-        return -1;
-    }
+    // Check if data length is correct
     if (data_len != sizeof(comm_espnow_data_t) + buf->len)
     {
         ESP_LOGE(TAG, "Receive ESPNOW data has wrong length, len:%d, expected len:%d", data_len, sizeof(comm_espnow_data_t) + buf->len);
         return -1;
     }
-    *len = buf->len < ESPNOW_DATA_MAX_LEN ? buf->len : ESPNOW_DATA_MAX_LEN;
-    memcpy(msg, buf->payload, *len);
 
-    crc = buf->crc;
-    buf->crc = 0;
-    crc_cal = esp_crc16_le(UINT16_MAX, (uint8_t const *)buf, data_len);
+    // Check if CRC matches
+    uint16_t crc_cal = esp_crc16_le(UINT16_MAX, (uint8_t const *)buf, data_len);
+    if (crc_cal != buf->crc)
+        return -1;
 
-    if (crc_cal == crc)
-    {
-        return 0;
-    }
+    // Copy payload to msg
+    memcpy(msg, buf->payload, buf->len);
+    *len = buf->len;
 
-    return -1;
+    return 0;
 }
+
 
 // Prepare ESPNOW data to be sent.
 // data: data payload to be sent ; len: length of data in Bytes
 void espnow_data_prepare(espnow_send_param_t *send_param, uint8_t *data, int len)
 {
-    printf("preparing\n");
-    send_param->buffer = data;
-    comm_espnow_data_t *buf = (comm_espnow_data_t *)send_param->buffer;
-    printf("set and formatted buffer and buf\n");
-    send_param->len = len + sizeof(comm_espnow_data_t);
-    assert(len <= ESPNOW_DATA_MAX_LEN);
-    printf("passed assert\n");
-    buf->crc = 0;
-    buf->len = len;
-    printf("passed buf references\n");
-    /* Only fill payload if there is room to fit it */
-    if (sizeof(comm_espnow_data_t) + buf->len <= send_param->len)
-    {
-        memcpy(buf->payload, data, len);
+    // Check if length is valid
+    int send_param_len = len + sizeof(comm_espnow_data_t);
+    if (send_param_len <= ESPNOW_DATA_MAX_LEN) {
+        ESP_LOGE(TAG, "Data too long");
+        return;
     }
-    printf("passed if\n");
-    buf->crc = esp_crc16_le(UINT16_MAX, (uint8_t const *)buf, send_param->len); // compute checksum to send with packet
-    printf("computed checksum\n");
+    send_param->len = send_param_len;
+
+    // Set memory for sending
+    memset(send_param->buffer, 0, send_param->len);
+
+    // Cast buffer to struct
+    comm_espnow_data_t *buf = (comm_espnow_data_t *)send_param->buffer;
+
+    // Fill in fields
+    buf->len = len;
+    memcpy(buf->payload, data, len);
+    buf->crc = esp_crc16_le(UINT16_MAX, (uint8_t const *)buf, send_param->len);
 }
 
 static void espnow_init()
