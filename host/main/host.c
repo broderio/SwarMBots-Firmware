@@ -47,7 +47,7 @@ static void print_task(void *arg)
 
 static void espnow_recv_task(void *args)
 {
-    espnow_event_recv_t *evt;
+    espnow_event_recv_t evt;
     uint8_t msg[ESPNOW_DATA_MAX_LEN];
     uint16_t data_len;
     int ret;
@@ -70,7 +70,8 @@ static void espnow_recv_task(void *args)
         printf("receieved data!\n");
         //ESP_LOGI(TAG, "Received data from: " MACSTR ", len: %d", MAC2STR(evt->mac_addr), evt->data_len);
         // Parse incoming packet
-        ret = espnow_data_parse(evt->data, evt->data_len, msg, &data_len);
+        ret = espnow_data_parse(evt.data, evt.data_len, msg, &data_len);
+        free(evt.data);
 
         // Check if data is invalid
         if (ret < 0) {
@@ -78,28 +79,32 @@ static void espnow_recv_task(void *args)
             continue;
         }
 
-        // Check if mac address is paired TODO: how could this happen? Clients only talk to Host after host talks to them?
-        if (esp_now_is_peer_exist(evt->mac_addr))
+        // If message not from known peer, ignore it
+        if (!esp_now_is_peer_exist(evt.mac_addr))
         {
-            printf("found a new peer unexpectedly\n");
-            // Create BOTPKT
-            size_t packet_len = data_len + MAC_ADDR_LEN + 4;
-            uint8_t* packet = malloc(packet_len);
-            packet[0] = 0xff;
-            packet[1] = (uint8_t) (data_len%255);
-            packet[2] = (uint8_t) (data_len>>8);
-            memcpy(packet + 3, evt->mac_addr, MAC_ADDR_LEN);
-            msg[MAC_ADDR_LEN + 4] = checksum(evt->mac_addr, MAC_ADDR_LEN);
-            memcpy(packet + MAC_ADDR_LEN + 4, msg, data_len);
-
-            // Send message to UART
-            uart_write_bytes(UART_PORT_NUM, (const char *)packet, packet_len);
+            printf("found a new peer unexpectedly: addr "MACSTR"\n", MAC2STR(evt.mac_addr));
+            continue;
         }
+
         ++packet_count;
         if (packet_count == 125){
             packet_count = 0;
             printf("received 125 packets\n");
         }
+
+        // Create BOTPKT
+        size_t packet_len = data_len + MAC_ADDR_LEN + 4;
+        uint8_t* packet = malloc(packet_len);
+        packet[0] = 0xff;
+        packet[1] = (uint8_t) (data_len%255);
+        packet[2] = (uint8_t) (data_len>>8);
+        memcpy(packet + 3, evt.mac_addr, MAC_ADDR_LEN);
+        msg[MAC_ADDR_LEN + 4] = checksum(evt.mac_addr, MAC_ADDR_LEN);
+        memcpy(packet + MAC_ADDR_LEN + 4, msg, data_len);
+
+        // Send message to UART
+        uart_write_bytes(UART_PORT_NUM, (const char *)packet, packet_len);
+        printf("\n\n"); //newlines for readability
     }
     ESP_LOGE(TAG, "Exited task espnow_recv_task loop");
 }

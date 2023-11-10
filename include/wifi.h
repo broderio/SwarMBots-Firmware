@@ -109,18 +109,18 @@ static void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *
     }
 
     // Copy source mac address
-    espnow_event_recv_t *evt = (espnow_event_recv_t *)malloc(sizeof(espnow_event_recv_t));
-    memcpy(evt->mac_addr, recv_info->src_addr, MAC_ADDR_LEN);
-    evt->data = malloc(len);
-    if (evt->data == NULL)
+    espnow_event_recv_t evt;
+    memcpy(evt.mac_addr, recv_info->src_addr, MAC_ADDR_LEN);
+    evt.data = malloc(len);
+    if (evt.data == NULL)
     {
         ESP_LOGE(TAG, "Malloc receive data fail");
         return;
     }
 
     // Copy data
-    memcpy(evt->data, data, len);
-    evt->data_len = len;
+    memcpy(evt.data, data, len);
+    evt.data_len = len;
 
     // Publish to queue
     if (xQueueSend(espnow_recv_queue, &evt, ESPNOW_MAXDELAY) != pdTRUE)
