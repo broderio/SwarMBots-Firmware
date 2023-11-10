@@ -237,7 +237,6 @@ void app_main()
     mode = !(bool)gpio_get_level(SW_PIN);
 
     //TODO:Remove later -------------------------------------------------------------
-    uint8_t s_peer_mac[MAC_ADDR_LEN] = {0x48, 0x27, 0xE2, 0xFD, 0x59, 0xF1};
     esp_now_peer_info_t *peer = malloc(sizeof(esp_now_peer_info_t));
     if (peer == NULL)
     {
@@ -245,6 +244,8 @@ void app_main()
         esp_now_deinit();
         return;
     }
+    
+    uint8_t s_peer_mac[MAC_ADDR_LEN] = {0xF4, 0x12, 0xFA, 0xFA, 0x07, 0x51};
     memset(peer, 0, sizeof(esp_now_peer_info_t));
     peer->channel = ESPNOW_CHANNEL;
     peer->ifidx = ESPNOW_WIFI_IF;
@@ -253,7 +254,7 @@ void app_main()
     ESP_ERROR_CHECK(esp_now_add_peer(peer));
     peers[0] = *peer;
 
-    uint8_t s_peer2_mac[MAC_ADDR_LEN] = {0xF4, 0x12, 0xFA, 0xFA, 0x07, 0x51};
+    uint8_t s_peer2_mac[MAC_ADDR_LEN] = {0x48, 0x27, 0xE2, 0xFD, 0x59, 0xF1};
     memset(peer, 0, sizeof(esp_now_peer_info_t));
     peer->channel = ESPNOW_CHANNEL;
     peer->ifidx = ESPNOW_WIFI_IF;
