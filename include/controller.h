@@ -31,6 +31,9 @@ static adc_cali_handle_t JS_X_cali;
 
 static bool doSerial = true;
 
+static SemaphoreHandle_t pilot_sem;
+static SemaphoreHandle_t serial_sem;
+
 TaskHandle_t serialMode;
 TaskHandle_t pilotMode;
 
@@ -69,27 +72,37 @@ static void buttons_isr_handler(void *arg)
 // ISR for switch (change modes)
 static void switch_isr_handler(void *arg)
 {
-    doSerial = !doSerial;
-    ESP_LOGI("SWITCH", "Switching to %s mode", doSerial? "serial": "pilot");
     uint32_t gpio_num = (uint32_t)arg;
+    doSerial = !doSerial;
+
     uint32_t ticks = xTaskGetTickCount();
     if ((ticks - last_switch) < 100)
         return;
     last_switch = ticks;
+
+    // If we are going into pilot mode
     if (!doSerial)
     {
+        // Give semaphore to suspend serial task
+        xSemaphoreGiveFromISR(serial_sem, NULL);
+        vTaskDelay(100 / portTICK_PERIOD_MS);
+
+        // Add ISR for buttons
         gpio_isr_handler_add(B1_PIN, buttons_isr_handler, (void *)B1_PIN);
         gpio_isr_handler_add(B2_PIN, buttons_isr_handler, (void *)B2_PIN);
-        vTaskSuspend(serialMode);
-        vTaskResume(pilotMode);
     }
+    // If we are going into serial mode
     else
     {
+        // Give semaphore to suspend pilot task
+        xSemaphoreGiveFromISR(pilot_sem, NULL);
+        vTaskDelay(100 / portTICK_PERIOD_MS);
+
+        // Remove ISR for buttons
         gpio_isr_handler_remove(B1_PIN);
         gpio_isr_handler_remove(B2_PIN);
-        vTaskSuspend(pilotMode);
-        vTaskResume(serialMode);
     }
+
     xQueueSendFromISR(gpio_evt_queue, &gpio_num, NULL);
 }
 
@@ -140,6 +153,10 @@ void controller_init()
 
     // Create a queue to handle gpio event from isr
     gpio_evt_queue = xQueueCreate(10, sizeof(uint32_t));
+
+    // Initialize switch semaphores
+    pilot_sem = xSemaphoreCreateBinary();
+    serial_sem = xSemaphoreCreateBinary();
 
     // Hook isr handler for specific gpio pin
     gpio_isr_handler_add(B1_PIN, buttons_isr_handler, (void *)B1_PIN);

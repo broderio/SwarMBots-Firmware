@@ -72,7 +72,8 @@ static void espnow_recv_task(void *args)
     while (xQueueReceive(espnow_recv_queue, &evt, portMAX_DELAY) == pdTRUE)
     {
         // ESP_LOGI(ESPNOW_RECV_TAG, "receieved data!");
-        //ESP_LOGI(ESPNOW_RECV_TAG, "Received data from: " MACSTR ", len: %d", MAC2STR(evt->mac_addr), evt->data_len);
+        // ESP_LOGI(ESPNOW_RECV_TAG, "Received data from: " MACSTR ", len: %d", MAC2STR(evt->mac_addr), evt->data_len);
+        
         // Parse incoming packet
         ret = espnow_data_parse(evt.data, evt.data_len, msg, &data_len);
         free(evt.data);
@@ -112,6 +113,8 @@ static void serial_mode_task(void *arg)
     if (!doSerial)
         vTaskSuspend(NULL);
 
+    ESP_LOGI(SERIAL_TAG, "Serial mode");
+
     // Configure UART
     uart_config_t uart_config = {
         .baud_rate = 115200,
@@ -127,14 +130,19 @@ static void serial_mode_task(void *arg)
 
     uint8_t packet[ESPNOW_DATA_MAX_LEN];
     TickType_t xLastWakeTime;
-    ESP_LOGI(SERIAL_TAG, "Serial Mode");
     while (1)
     {
         xLastWakeTime = xTaskGetTickCount();
 
+        // Suspend task if we switch modes
+        if (xSemaphoreTake(serial_sem, 1) == pdTRUE) {
+            ESP_LOGI(SERIAL_TAG, "Switching to pilot mode");
+            vTaskResume(pilotMode);
+            vTaskSuspend(serialMode);
+        }
+
         // Read mac address and validate
         uint8_t mac_address[MAC_ADDR_LEN];
-        uint8_t checksum_val;
         uint16_t pkt_len;
         ESP_LOGI(SERIAL_TAG, "Waiting for packet...");
         read_mac_address(mac_address, &pkt_len);
@@ -183,16 +191,11 @@ static void serial_mode_task(void *arg)
 
 void pilot_mode_task(void *arg)
 {
-    int count = 0;
-
-    // Suspend immediately if in serial mode
+    // Suspend immediately if in serial mode or if we have no clients paired
     if (doSerial)
-        vTaskSuspend(NULL);
+        vTaskSuspend(pilotMode);
 
-    if (peer_num == 0) {
-        ESP_LOGE(PILOT_TAG, "No peers connected!");
-        vTaskSuspend(NULL);
-    }
+    ESP_LOGI(PILOT_TAG, "Pilot mode");
 
     esp_now_peer_info_t peer = peers[curr_bot];
     espnow_send_param_t send_param;
@@ -207,6 +210,13 @@ void pilot_mode_task(void *arg)
     {
         xLastWakeTime = xTaskGetTickCount();
 
+        // Suspend task if we switch modes
+        if (xSemaphoreTake(pilot_sem, 1) == pdTRUE) {
+            ESP_LOGI(PILOT_TAG, "Switching to serial mode");
+            vTaskResume(serialMode);
+            vTaskSuspend(pilotMode);
+        }
+
         adc_oneshot_get_calibrated_result(adc1_handle, JS_Y_cali, ADC_CHANNEL_3, &vyAdc);
         adc_oneshot_get_calibrated_result(adc1_handle, JS_X_cali, ADC_CHANNEL_4, &vxAdc);
 
@@ -220,28 +230,29 @@ void pilot_mode_task(void *arg)
         //ESP_LOGI(PILOT_TAG, "Forward Velocity: %f m/s", vx);
         //ESP_LOGI(PILOT_TAG, "Turn Velocity: %f m/s", wz);
 
-        peer = peers[curr_bot];
-        ESP_LOGI(PILOT_TAG, "Sending to " MACSTR"", MAC2STR(peer.peer_addr));
-        memcpy(send_param.dest_mac, peer.peer_addr, MAC_ADDR_LEN);
-        uint8_t* packet = command_serializer(vx, 0, wz);
-        espnow_data_prepare(&send_param, packet, sizeof(serial_twist2D_t) + ROS_PKG_LEN);
-        free(packet);
-        // ESP_LOGI(PILOT_TAG, "Heap size (at start) %lu", esp_get_free_heap_size());
+        if (peer_num > 0) {
+            peer = peers[curr_bot];
+            ESP_LOGI(PILOT_TAG, "Sending to " MACSTR"", MAC2STR(peer.peer_addr));
+            memcpy(send_param.dest_mac, peer.peer_addr, MAC_ADDR_LEN);
+            uint8_t* packet = command_serializer(vx, 0, wz);
+            espnow_data_prepare(&send_param, packet, sizeof(serial_twist2D_t) + ROS_PKG_LEN);
+            free(packet);
+            // ESP_LOGI(PILOT_TAG, "Heap size (at start) %lu", esp_get_free_heap_size());
 
-        esp_err_t err = esp_now_send(send_param.dest_mac, send_param.buffer, send_param.len);
-        if (err != ESP_OK)
-        {
-            ESP_LOGE(PILOT_TAG, "Send error %s", esp_err_to_name(err));
-        }
+            esp_err_t err = esp_now_send(send_param.dest_mac, send_param.buffer, send_param.len);
+            if (err != ESP_OK)
+            {
+                ESP_LOGE(PILOT_TAG, "Send error %s", esp_err_to_name(err));
+            }
 
-        // Check to see if send was successful
-        espnow_event_send_t *send_evt;
-        if (xQueueReceive(espnow_send_queue, &send_evt, portMAX_DELAY) != pdTRUE) {
-            ESP_LOGE(PILOT_TAG, "Send failed");
+            // Check to see if send was successful
+            espnow_event_send_t *send_evt;
+            if (xQueueReceive(espnow_send_queue, &send_evt, portMAX_DELAY) != pdTRUE) {
+                ESP_LOGE(PILOT_TAG, "Send failed");
+            }
         }
         // ESP_LOGI(PILOT_TAG, "GPIO17: %d\n", gpio_get_level(SW_PIN));
         // ESP_LOGI(PILOT_TAG, "Heap size (at end) %lu", esp_get_free_heap_size());
-        count = 0;
 
         vTaskDelayUntil(&xLastWakeTime, 100 / portTICK_PERIOD_MS);
     }
@@ -277,8 +288,8 @@ void app_main()
     
     // Create tasks
     xTaskCreate(espnow_recv_task, "espnow_recv_task", 4096, NULL, 4, NULL);
-    xTaskCreate(serial_mode_task, "serial_mode_task", 4096, NULL, 1, &serialMode);
-    xTaskCreate(pilot_mode_task, "pilot_mode_task", 4096, NULL, 1, &pilotMode);
+    xTaskCreate(serial_mode_task, "serial_mode_task", 4096, NULL, 3, &serialMode);
+    xTaskCreate(pilot_mode_task, "pilot_mode_task", 4096, NULL, 3, &pilotMode);
 
     // for debugging
     // xTaskCreate(print_task, "print_task", 2048, NULL, 3, NULL);
