@@ -39,13 +39,12 @@ enum message_topics{
 };
 
 uint8_t checksum(uint8_t* addends, int len);
-void read_mac_address(uint8_t* mac_address, uint16_t* pkt_len, uint8_t* checksum_val);
+void read_mac_address(uint8_t* mac_address, uint16_t* pkt_len);
 void read_header(uint8_t* header_data);
 void read_message(uint8_t* msg_data_serialized, uint16_t message_len, char* topic_msg_data_checksum);
 void read_packet(uint8_t* pkt_data, uint16_t pkt_len);
 int validate_header(uint8_t* header_data);
 int validate_message(uint8_t* header_data, uint8_t* msg_data_serialized, uint16_t message_len, char topic_msg_data_checksum);
-int validate_mac_address(uint8_t* mac_address, uint16_t pkt_len, uint8_t checksum_val);
 int encode_msg(uint8_t* MSG, int msg_len, uint16_t TOPIC, uint8_t* ROSPKT, int rospkt_len);
 
 
@@ -58,7 +57,7 @@ uint8_t checksum(uint8_t* addends, int len) {
     return 255 - ( ( sum ) % 256 );
 }
 
-void read_mac_address(uint8_t* mac_address, uint16_t* pkt_len, uint8_t* checksum_val) {
+void read_mac_address(uint8_t* mac_address, uint16_t* pkt_len) {
     uint8_t trigger_val = 0x00;
     while(trigger_val != 0xff)
     {
@@ -66,7 +65,6 @@ void read_mac_address(uint8_t* mac_address, uint16_t* pkt_len, uint8_t* checksum
     }
     uart_read_bytes(0, pkt_len, 2, 1);
     uart_read_bytes(0, mac_address, MAC_ADDR_LEN, 1);
-    uart_read_bytes(0, checksum_val, 1, 1);
 }
 
 void read_header(uint8_t* header_data) {
@@ -80,14 +78,6 @@ void read_message(uint8_t* msg_data_serialized, uint16_t message_len, char* topi
 
 void read_packet(uint8_t* pkt_data, uint16_t pkt_len) {
     uart_read_bytes(0, pkt_data, pkt_len, 1);
-}
-
-int validate_mac_address(uint8_t* mac_address, uint16_t pkt_len, uint8_t checksum_val) {
-    uint8_t cs_addends[MAC_ADDR_LEN + 2];
-    memcpy(cs_addends, mac_address, MAC_ADDR_LEN);
-    cs_addends[6] = (uint8_t) (pkt_len%255);
-    cs_addends[7] = (uint8_t) (pkt_len>>8);
-    return checksum(cs_addends, MAC_ADDR_LEN + 2) == checksum_val;
 }
 
 // Function to validate the header

@@ -19,9 +19,13 @@
 //static uint8_t s_host_mac[MAC_ADDR_LEN] = {0xF4, 0x12, 0xFA, 0xFA, 0x11, 0xe1};
 #define IS_BROADCAST_ADDR(addr) (memcmp(addr, s_host_mac, MAC_ADDR_LEN) == 0)
 
-const char *TAG = "WIFI";
 static QueueHandle_t espnow_send_queue;
 static QueueHandle_t espnow_recv_queue;
+
+const char *SEND_CB_TAG = "SEND_CB";
+const char *RECV_CB_TAG = "RECV_CB";
+const char *PARSE_TAG = "PARSE";
+const char *PREPARE_TAG = "PREPARE";
 
 
 /* User defined field of ESPNOW data. */
@@ -85,7 +89,7 @@ static void espnow_send_cb(const uint8_t *mac_addr, esp_now_send_status_t status
 {
     if (mac_addr == NULL)
     {
-        ESP_LOGE(TAG, "Send cb arg error");
+        ESP_LOGE(SEND_CB_TAG, "Send cb arg error");
         return;
     }
 
@@ -96,7 +100,7 @@ static void espnow_send_cb(const uint8_t *mac_addr, esp_now_send_status_t status
     // Publish send status to queue
     if (xQueueSend(espnow_send_queue, &evt, ESPNOW_MAXDELAY) != pdTRUE)
     {
-        ESP_LOGW(TAG, "Send send queue fail");
+        ESP_LOGW(SEND_CB_TAG, "Send send queue fail");
     }
 }
 
@@ -104,7 +108,7 @@ static void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *
 {
     if (recv_info->src_addr == NULL || data == NULL || len <= 0)
     {
-        ESP_LOGE(TAG, "Receive cb arg error");
+        ESP_LOGE(RECV_CB_TAG, "Receive cb arg error");
         return;
     }
 
@@ -114,7 +118,7 @@ static void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *
     evt.data = malloc(len);
     if (evt.data == NULL)
     {
-        ESP_LOGE(TAG, "Malloc receive data fail");
+        ESP_LOGE(RECV_CB_TAG, "Malloc receive data fail");
         return;
     }
 
@@ -122,12 +126,12 @@ static void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *
     memcpy(evt.data, data, len);
     evt.data_len = len;
 
-    printf("received packet in callback with length %d\n", len);
+    // ESP_LOGI(RECV_CB_TAG, "Received packet in callback with len: %d", len);
 
     // Publish to queue
     if (xQueueSend(espnow_recv_queue, &evt, ESPNOW_MAXDELAY) != pdTRUE)
     {
-        ESP_LOGW(TAG, "Send receive queue fail");
+        ESP_LOGW(RECV_CB_TAG, "Send receive queue fail");
     }
 }
 
@@ -141,7 +145,7 @@ int espnow_data_parse(uint8_t *data, uint16_t data_len, uint8_t *msg, uint16_t *
     // Check if data length is correct
     if (data_len != sizeof(comm_espnow_data_t) + buf->len)
     {
-        ESP_LOGE(TAG, "Receive ESPNOW data has wrong length, len:%d, expected len:%d", data_len, sizeof(comm_espnow_data_t) + buf->len);
+        ESP_LOGE(PARSE_TAG, "Receive ESPNOW data has wrong length, len:%d, expected len:%d", data_len, sizeof(comm_espnow_data_t) + buf->len);
         return -1;
     }
 
@@ -163,7 +167,7 @@ void espnow_data_prepare(espnow_send_param_t *send_param, uint8_t *data, int len
 {
     // Check if length is valid
     if (len > ESPNOW_DATA_MAX_LEN) {
-        ESP_LOGE(TAG, "Data too long");
+        ESP_LOGE(PREPARE_TAG, "Data too long! %d > %d", len, ESPNOW_DATA_MAX_LEN);
         return;
     }
     int send_param_len = len + sizeof(comm_espnow_data_t);
@@ -193,7 +197,7 @@ static void espnow_init()
     espnow_recv_queue = xQueueCreate(ESPNOW_QUEUE_SIZE, sizeof(espnow_event_recv_t));
     if (espnow_send_queue == NULL || espnow_recv_queue == NULL)
     {
-        ESP_LOGE(TAG, "Create mutex fail");
+        ESP_LOGE(PREPARE_TAG, "Create mutex fail");
         return;
     }
 

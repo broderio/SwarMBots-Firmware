@@ -32,8 +32,12 @@
 #include "lcm/mbot_lcm_msgs_serial.h"
 #include "lcm/comms.h"
 
+const char *ESPNOW_SEND_TAG = "ESPNOW_SEND_TASK";
+const char *ESPNOW_RECV_TAG = "ESPNOW_RECV_TASK";
+const char *MAIN_TAG = "APP_MAIN";
+
+
 SemaphoreHandle_t spi_mutex;
-bool found_host = false;
 uint8_t host_mac_addr[MAC_ADDR_LEN];
 SemaphoreHandle_t wifi_ready;
 
@@ -48,69 +52,51 @@ static void espnow_recv_task(void *args)
     esp_err_t err = esp_wifi_get_mac(WIFI_IF_AP, mac);
     if (err != ESP_OK)
     {
-        ESP_LOGI(TAG, "Could not get mac address, error code %d", err);
+        ESP_LOGI(ESPNOW_RECV_TAG, "Could not get mac address, error code %d", err);
     }
 
     vTaskDelay(1000 / portTICK_PERIOD_MS);
 
     // Print client mac address
-    ESP_LOGI(TAG, "Client MAC: " MACSTR, MAC2STR(mac));
+    ESP_LOGI(ESPNOW_RECV_TAG, "Client MAC: " MACSTR, MAC2STR(mac));
 
+    ESP_LOGI(ESPNOW_RECV_TAG, "Waiting for host...");
+    // Wait for first message from host
+    connect_to_host(host_mac_addr);
+    ESP_LOGI(ESPNOW_RECV_TAG, "Connected to host.");
+    xSemaphoreGive(wifi_ready);
+
+    // Begin receiving messages and sending them over SPI
     spi_slave_transaction_t t;
     while (xQueueReceive(espnow_recv_queue, &evt, portMAX_DELAY) == pdTRUE)
     {
         // Parse incoming packet
         ret = espnow_data_parse(evt.data, evt.data_len, msg, &data_len);
         free(evt.data);
-        printf("receiving\n");
+        ESP_LOGI(ESPNOW_RECV_TAG, "Received message.");
         // Check if data is invalid
         if (ret != 0) {
-            ESP_LOGE(TAG, "Received invalid data");
+            ESP_LOGE(ESPNOW_RECV_TAG, "Received invalid data");
             continue;
-        }
-        // Check if mac address is paired
-        if (!found_host && !esp_now_is_peer_exist(evt.mac_addr))
-        {
-            // Allocate peer
-            esp_now_peer_info_t *peer = malloc(sizeof(esp_now_peer_info_t));
-            if (peer == NULL)
-            {
-                ESP_LOGE(TAG, "Malloc peer information fail");
-            }
-            memset(peer, 0, sizeof(esp_now_peer_info_t));
-            peer->channel = ESPNOW_CHANNEL;
-            peer->ifidx = ESPNOW_WIFI_IF;
-            peer->encrypt = false;
-            memcpy(peer->peer_addr, evt.mac_addr, MAC_ADDR_LEN);
-
-            // Add peer
-            ESP_ERROR_CHECK(esp_now_add_peer(peer));
-            free(peer);
-            found_host = true;
-            memcpy(host_mac_addr, evt.mac_addr, MAC_ADDR_LEN);
-            ESP_LOGI(TAG, "Found host (MAC: "MACSTR")", MAC2STR(evt.mac_addr));
-            xSemaphoreGive(wifi_ready);
         }
 
         // Populate SPI packet
         t.length = data_len * 8;
         t.tx_buffer = msg;
         t.rx_buffer = NULL;
-        t.trans_len = 0; //REMOVE LATER
+        t.trans_len = 0;
 
         if (xSemaphoreTake(spi_mutex, portMAX_DELAY) == pdTRUE) {
-            printf("esp receive took semaphore\n");
             ret = ESP_OK; 
             spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
             xSemaphoreGive(spi_mutex);
             if (ret != ESP_OK)
             {
-                ESP_LOGI(TAG, "Error transmitting: 0x%x", ret);
+                ESP_LOGI(ESPNOW_RECV_TAG, "Error transmitting: 0x%x", ret);
                 continue;
             }
         }
-        printf("esp receive gave semaphore\n");
-        ESP_LOGI(TAG, "Sent %zu bytes\n", t.trans_len / 8);
+        ESP_LOGI(ESPNOW_RECV_TAG, "Sent %zu bytes\n", t.trans_len / 8);
     }
 }
 
@@ -128,17 +114,15 @@ void espnow_send_task(void *args)
         t.trans_len = 0; //REMOVE LATEr
 
         if (xSemaphoreTake(spi_mutex, portMAX_DELAY) == pdTRUE) {
-            printf("esp send took semaphore\n");
             ret = ESP_OK; 
             spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
             xSemaphoreGive(spi_mutex);
             if (ret != ESP_OK)
             {
-                ESP_LOGE(TAG, "Error reading SPI transmission");
+                ESP_LOGE(ESPNOW_SEND_TAG, "Error reading SPI transmission");
                 continue;
             }
         }
-        printf("esp send gave semaphore\n");
 
         if (t.trans_len && t.trans_len > t.length)
             continue;
@@ -151,7 +135,7 @@ void espnow_send_task(void *args)
         // Check to see if send was successful
         espnow_event_send_t *send_evt;
         if (xQueueReceive(espnow_send_queue, &send_evt, portMAX_DELAY) != pdTRUE) {
-            ESP_LOGE(TAG, "Send failed");
+            ESP_LOGE(ESPNOW_SEND_TAG, "Send failed");
         }
     }
 }
@@ -168,13 +152,13 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
-    ESP_LOGI(TAG, "Initializing WiFi...");
+    ESP_LOGI(MAIN_TAG, "Initializing WiFi...");
     wifi_init();
 
-    ESP_LOGI(TAG, "Initializing ESP-NOW...");
+    ESP_LOGI(MAIN_TAG, "Initializing ESP-NOW...");
     espnow_init();
 
-    ESP_LOGI(TAG, "Initializing SPI...");
+    ESP_LOGI(MAIN_TAG, "Initializing SPI...");
     spi_init();
 
     // Create mutex for SPI

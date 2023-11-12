@@ -29,10 +29,10 @@ adc_oneshot_unit_handle_t adc1_handle;
 static adc_cali_handle_t JS_Y_cali;
 static adc_cali_handle_t JS_X_cali;
 
-static bool doSerial = 1;
+static bool doSerial = true;
 
 TaskHandle_t serialMode;
-TaskHandle_t controllerMode;
+TaskHandle_t pilotMode;
 
 uint8_t *command_serializer(float vx, float vy, float wz)
 {
@@ -70,6 +70,7 @@ static void buttons_isr_handler(void *arg)
 static void switch_isr_handler(void *arg)
 {
     doSerial = !doSerial;
+    ESP_LOGI("SWITCH", "Switching to %s mode", doSerial? "serial": "pilot");
     uint32_t gpio_num = (uint32_t)arg;
     uint32_t ticks = xTaskGetTickCount();
     if ((ticks - last_switch) < 100)
@@ -80,13 +81,13 @@ static void switch_isr_handler(void *arg)
         gpio_isr_handler_add(B1_PIN, buttons_isr_handler, (void *)B1_PIN);
         gpio_isr_handler_add(B2_PIN, buttons_isr_handler, (void *)B2_PIN);
         vTaskSuspend(serialMode);
-        vTaskResume(controllerMode);
+        vTaskResume(pilotMode);
     }
     else
     {
         gpio_isr_handler_remove(B1_PIN);
         gpio_isr_handler_remove(B2_PIN);
-        vTaskSuspend(controllerMode);
+        vTaskSuspend(pilotMode);
         vTaskResume(serialMode);
     }
     xQueueSendFromISR(gpio_evt_queue, &gpio_num, NULL);
