@@ -224,7 +224,7 @@ void pilot_mode_task(void *arg)
 
         // Check to see if send was successful
         espnow_event_send_t *send_evt;
-        if (xQueueReceive(espnow_send_queue, &send_evt, 1) != pdTRUE) {
+        if (xQueueReceive(espnow_send_queue, &send_evt, 10 / portTICK_PERIOD_MS) != pdTRUE) {
             ESP_LOGE(TAG, "Send failed");
         }
         // printf("GPIO17: %d\n", gpio_get_level(SW_PIN));

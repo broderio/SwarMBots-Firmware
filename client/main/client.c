@@ -88,7 +88,7 @@ static void espnow_recv_task(void *args)
             free(peer);
             found_host = true;
             memcpy(host_mac_addr, evt.mac_addr, MAC_ADDR_LEN);
-            ESP_LOGI(TAG, "Found host");
+            ESP_LOGI(TAG, "Found host (MAC: "MACSTR")", MAC2STR(evt.mac_addr));
             xSemaphoreGive(wifi_ready);
         }
 
@@ -99,6 +99,7 @@ static void espnow_recv_task(void *args)
         t.trans_len = 0; //REMOVE LATER
 
         if (xSemaphoreTake(spi_mutex, portMAX_DELAY) == pdTRUE) {
+            printf("esp receive took semaphore\n");
             ret = ESP_OK; 
             spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
             xSemaphoreGive(spi_mutex);
@@ -108,6 +109,7 @@ static void espnow_recv_task(void *args)
                 continue;
             }
         }
+        printf("esp receive gave semaphore\n");
         ESP_LOGI(TAG, "Sent %zu bytes\n", t.trans_len / 8);
     }
 }
@@ -126,7 +128,9 @@ void espnow_send_task(void *args)
         t.trans_len = 0; //REMOVE LATEr
 
         if (xSemaphoreTake(spi_mutex, portMAX_DELAY) == pdTRUE) {
-            ret = ESP_OK; //spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
+            printf("esp send took semaphore\n");
+            ret = ESP_OK; 
+            spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
             xSemaphoreGive(spi_mutex);
             if (ret != ESP_OK)
             {
@@ -134,6 +138,7 @@ void espnow_send_task(void *args)
                 continue;
             }
         }
+        printf("esp send gave semaphore\n");
 
         if (t.trans_len && t.trans_len > t.length)
             continue;
