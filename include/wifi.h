@@ -126,7 +126,7 @@ void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *data, i
     memcpy(evt.data, data, len);
     evt.data_len = len;
 
-    // ESP_LOGI(RECV_CB_TAG, "Received packet in callback with len: %d", len);
+    ESP_LOGI(RECV_CB_TAG, "Received packet in callback with len: %d", len);
 
     // Publish to queue
     if (xQueueSend(espnow_recv_queue, &evt, ESPNOW_MAXDELAY) != pdTRUE)

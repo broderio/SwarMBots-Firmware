@@ -146,17 +146,7 @@ static void serial_mode_task(void *arg)
         // Add peer if mac address is not already
         if (!esp_now_is_peer_exist(mac_address)) {
             ESP_LOGI(SERIAL_TAG, "Adding peer ...");
-            if (peer_num >= 8) {
-                ESP_LOGE(SERIAL_TAG, "Reached max peer count");
-                continue;
-            }
-            peer_num++;
-            esp_now_peer_info_t *peer = peers + peer_num;
-            peer->channel = ESPNOW_CHANNEL;
-            peer->ifidx = ESPNOW_WIFI_IF;
-            peer->encrypt = false;
-            memcpy(peer->peer_addr, mac_address, MAC_ADDR_LEN);
-            ESP_ERROR_CHECK(esp_now_add_peer(peer));
+            add_peer(mac_address);
         }
 
         espnow_data_send(mac_address, packet, pkt_len);
@@ -205,22 +195,10 @@ void pilot_mode_task(void *arg)
             ESP_LOGI(PILOT_TAG, "Sending to " MACSTR"", MAC2STR(peer.peer_addr));
             memcpy(send_param.dest_mac, peer.peer_addr, MAC_ADDR_LEN);
             uint8_t* packet = command_serializer(vx, 0, wz);
-            espnow_data_prepare(&send_param, packet, sizeof(serial_twist2D_t) + ROS_PKG_LEN);
-            free(packet);
-            // ESP_LOGI(PILOT_TAG, "Heap size (at start) %lu", esp_get_free_heap_size());
-
-            esp_err_t err = esp_now_send(send_param.dest_mac, send_param.buffer, send_param.len);
-            if (err != ESP_OK)
-            {
-                ESP_LOGE(PILOT_TAG, "Send error %s", esp_err_to_name(err));
-            }
-
-            // Check to see if send was successful
-            espnow_event_send_t *send_evt;
-            if (xQueueReceive(espnow_send_queue, &send_evt, portMAX_DELAY) != pdTRUE) {
-                ESP_LOGE(PILOT_TAG, "Send failed");
-            }
+            uint16_t pkt_len = sizeof(serial_twist2D_t) + ROS_PKG_LEN;
+            espnow_data_send(peer.peer_addr, packet, pkt_len);
         }
+        
         // ESP_LOGI(PILOT_TAG, "GPIO17: %d\n", gpio_get_level(SW_PIN));
         // ESP_LOGI(PILOT_TAG, "Heap size (at end) %lu", esp_get_free_heap_size());
 
@@ -292,7 +270,7 @@ void app_main()
     
     // Create tasks
     xTaskCreate(espnow_recv_task, "espnow_recv_task", 4096, NULL, 4, NULL);
-    xTaskCreate(switch_task, "switch_task", 2048, NULL, 4, NULL);
+    xTaskCreate(switch_task, "switch_task", 4096, NULL, 4, NULL);
     xTaskCreate(serial_mode_task, "serial_mode_task", 4096, NULL, 3, &serialMode);
     xTaskCreate(pilot_mode_task, "pilot_mode_task", 4096, NULL, 3, &pilotMode);
     
