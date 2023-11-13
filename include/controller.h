@@ -86,6 +86,7 @@ static void switch_isr_handler(void *arg)
         // Give semaphore to suspend serial task
         xSemaphoreGiveFromISR(serial_sem, NULL);
         vTaskDelay(100 / portTICK_PERIOD_MS);
+        xTaskResumeFromISR(pilotMode);
 
         // Add ISR for buttons
         gpio_isr_handler_add(B1_PIN, buttons_isr_handler, (void *)B1_PIN);
@@ -97,6 +98,7 @@ static void switch_isr_handler(void *arg)
         // Give semaphore to suspend pilot task
         xSemaphoreGiveFromISR(pilot_sem, NULL);
         vTaskDelay(100 / portTICK_PERIOD_MS);
+        xTaskResumeFromISR(serialMode);
 
         // Remove ISR for buttons
         gpio_isr_handler_remove(B1_PIN);

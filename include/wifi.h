@@ -16,17 +16,17 @@
 #define ESPNOW_QUEUE_SIZE 6
 #define MAC_ADDR_LEN 6
 
-//static uint8_t s_host_mac[MAC_ADDR_LEN] = {0xF4, 0x12, 0xFA, 0xFA, 0x11, 0xe1};
+// uint8_t s_host_mac[MAC_ADDR_LEN] = {0xF4, 0x12, 0xFA, 0xFA, 0x11, 0xe1};
 #define IS_BROADCAST_ADDR(addr) (memcmp(addr, s_host_mac, MAC_ADDR_LEN) == 0)
 
-static QueueHandle_t espnow_send_queue;
-static QueueHandle_t espnow_recv_queue;
+QueueHandle_t espnow_send_queue;
+QueueHandle_t espnow_recv_queue;
 
 const char *SEND_CB_TAG = "SEND_CB";
 const char *RECV_CB_TAG = "RECV_CB";
 const char *PARSE_TAG = "PARSE";
 const char *PREPARE_TAG = "PREPARE";
-
+const char *DATA_SEND_TAG = "DATA_SEND";
 
 /* User defined field of ESPNOW data. */
 // this should be the same between client and client
@@ -40,11 +40,10 @@ typedef struct
 /* Parameters of sending ESPNOW data. */
 typedef struct
 {
-    int len;                        // Length of ESPNOW data to be sent (buffer), unit: byte.
-    uint8_t buffer[ESPNOW_DATA_MAX_LEN];              // Buffer pointing to ESPNOW data.
-    uint8_t dest_mac[MAC_ADDR_LEN]; // MAC address of destination device.
+    int len;                             // Length of ESPNOW data to be sent (buffer), unit: byte.
+    uint8_t buffer[ESPNOW_DATA_MAX_LEN]; // Buffer pointing to ESPNOW data.
+    uint8_t dest_mac[MAC_ADDR_LEN];      // MAC address of destination device.
 } espnow_send_param_t;
-
 
 typedef struct
 {
@@ -59,16 +58,17 @@ typedef struct
     esp_now_send_status_t status;
 } espnow_event_send_t;
 
-static void wifi_init(void);
-static void espnow_send_cb(const uint8_t *mac_addr, esp_now_send_status_t status);
-static void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len);
+void wifi_init(void);
+void espnow_send_cb(const uint8_t *mac_addr, esp_now_send_status_t status);
+void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len);
 int espnow_data_parse(uint8_t *data, uint16_t data_len, uint8_t *msg, uint16_t *len);
-void espnow_data_prepare(espnow_send_param_t *send_param, uint8_t *data, int len);
-static void espnow_init();
-static void espnow_deinit();
+int espnow_data_prepare(espnow_send_param_t *send_param, uint8_t *data, int len);
+int espnow_data_send(uint8_t *mac_addr, uint8_t *data, int len);
+void espnow_init();
+void espnow_deinit();
 
 /* WiFi should start before using ESPNOW */
-static void wifi_init(void)
+void wifi_init(void)
 {
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -85,7 +85,7 @@ static void wifi_init(void)
 /* ESPNOW sending or receiving callback function is called in WiFi task.
  * Users should not do lengthy operations from this task. Instead, post
  * necessary data to a queue and handle it from a lower priority task. */
-static void espnow_send_cb(const uint8_t *mac_addr, esp_now_send_status_t status)
+void espnow_send_cb(const uint8_t *mac_addr, esp_now_send_status_t status)
 {
     if (mac_addr == NULL)
     {
@@ -104,7 +104,7 @@ static void espnow_send_cb(const uint8_t *mac_addr, esp_now_send_status_t status
     }
 }
 
-static void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len)
+void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len)
 {
     if (recv_info->src_addr == NULL || data == NULL || len <= 0)
     {
@@ -163,12 +163,13 @@ int espnow_data_parse(uint8_t *data, uint16_t data_len, uint8_t *msg, uint16_t *
 
 // Prepare ESPNOW data to be sent.
 // data: data payload to be sent ; len: length of data in Bytes
-void espnow_data_prepare(espnow_send_param_t *send_param, uint8_t *data, int len)
+int espnow_data_prepare(espnow_send_param_t *send_param, uint8_t *data, int len)
 {
     // Check if length is valid
-    if (len > ESPNOW_DATA_MAX_LEN) {
+    if (len > ESPNOW_DATA_MAX_LEN)
+    {
         ESP_LOGE(PREPARE_TAG, "Data too long! %d > %d", len, ESPNOW_DATA_MAX_LEN);
-        return;
+        return -1;
     }
     int send_param_len = len + sizeof(comm_espnow_data_t);
     send_param->len = send_param_len;
@@ -183,9 +184,31 @@ void espnow_data_prepare(espnow_send_param_t *send_param, uint8_t *data, int len
     buf->len = len;
     memcpy(buf->payload, data, len);
     buf->crc = esp_crc16_le(UINT16_MAX, (uint8_t const *)buf->payload, buf->len);
+    return 0;
 }
 
-static void espnow_init()
+int espnow_data_send(uint8_t *mac_addr, uint8_t *data, int len)
+{
+    // Prepare data to send
+    espnow_send_param_t send_param;
+    memcpy(send_param.dest_mac, mac_addr, MAC_ADDR_LEN);
+    int ret = espnow_data_prepare(&send_param, data, len);
+    if (ret < 0) return -1;
+
+    // Send data
+    esp_now_send(send_param.dest_mac, send_param.buffer, send_param.len);
+
+    // Check to see if send was successful
+    espnow_event_send_t *send_evt;
+    if (xQueueReceive(espnow_send_queue, &send_evt, portMAX_DELAY) != pdTRUE)
+    {
+        ESP_LOGE(DATA_SEND_TAG, "Send failed");
+        return -1;
+    }
+    return 0;
+}
+
+void espnow_init()
 {
     // Initialize ESPNOW and register sending and receiving callback function.
     ESP_ERROR_CHECK(esp_now_init());
@@ -208,8 +231,8 @@ static void espnow_init()
 }
 
 // handles error by cleaning up param and deinitializing wifi
-//TODO: this function already exists in espnow.h...
-static void espnow_deinit()
+// TODO: this function already exists in espnow.h...
+void espnow_deinit()
 {
     vSemaphoreDelete(espnow_send_queue);
     vSemaphoreDelete(espnow_recv_queue);

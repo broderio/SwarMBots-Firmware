@@ -60,8 +60,8 @@ static void espnow_recv_task(void *args)
     // Print client mac address
     ESP_LOGI(ESPNOW_RECV_TAG, "Client MAC: " MACSTR, MAC2STR(mac));
 
-    ESP_LOGI(ESPNOW_RECV_TAG, "Waiting for host...");
     // Wait for first message from host
+    ESP_LOGI(ESPNOW_RECV_TAG, "Waiting for host...");
     connect_to_host(host_mac_addr);
     ESP_LOGI(ESPNOW_RECV_TAG, "Connected to host.");
     xSemaphoreGive(wifi_ready);
@@ -74,6 +74,7 @@ static void espnow_recv_task(void *args)
         ret = espnow_data_parse(evt.data, evt.data_len, msg, &data_len);
         free(evt.data);
         ESP_LOGI(ESPNOW_RECV_TAG, "Received message.");
+
         // Check if data is invalid
         if (ret != 0) {
             ESP_LOGE(ESPNOW_RECV_TAG, "Received invalid data");
@@ -124,19 +125,12 @@ void espnow_send_task(void *args)
             }
         }
 
-        if (t.trans_len && t.trans_len > t.length)
+        if (t.trans_len > t.length) {
+            ESP_LOGE(ESPNOW_SEND_TAG, "Received more bytes than expected.");
             continue;
-        espnow_send_param_t send_param;
-        //printf("sending to " MACSTR"\n", MAC2STR(send_param.dest_mac));
-        memcpy(send_param.dest_mac, host_mac_addr, MAC_ADDR_LEN);
-        espnow_data_prepare(&send_param, t.rx_buffer, t.trans_len / 8);
-        esp_now_send(send_param.dest_mac, send_param.buffer, send_param.len);
-
-        // Check to see if send was successful
-        espnow_event_send_t *send_evt;
-        if (xQueueReceive(espnow_send_queue, &send_evt, portMAX_DELAY) != pdTRUE) {
-            ESP_LOGE(ESPNOW_SEND_TAG, "Send failed");
         }
+
+        espnow_data_send(host_mac_addr, t.rx_buffer, t.trans_len / 8);
     }
 }
 

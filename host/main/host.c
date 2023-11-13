@@ -92,14 +92,13 @@ static void espnow_recv_task(void *args)
         }
 
         // Create BOTPKT
-        size_t packet_len = data_len + MAC_ADDR_LEN + 4;
+        size_t packet_len = data_len + MAC_ADDR_LEN + 3;
         uint8_t* packet = malloc(packet_len);
         packet[0] = 0xff;
         packet[1] = (uint8_t) (data_len%255);
         packet[2] = (uint8_t) (data_len>>8);
         memcpy(packet + 3, evt.mac_addr, MAC_ADDR_LEN);
-        msg[MAC_ADDR_LEN + 4] = checksum(evt.mac_addr, MAC_ADDR_LEN);
-        memcpy(packet + MAC_ADDR_LEN + 4, msg, data_len);
+        memcpy(packet + MAC_ADDR_LEN + 3, msg, data_len);
 
         // Send message to UART
         uart_write_bytes(UART_PORT_NUM, (const char *)packet, packet_len);
@@ -137,7 +136,6 @@ static void serial_mode_task(void *arg)
         // Suspend task if we switch modes
         if (xSemaphoreTake(serial_sem, 1) == pdTRUE) {
             ESP_LOGI(SERIAL_TAG, "Switching to pilot mode");
-            vTaskResume(pilotMode);
             vTaskSuspend(serialMode);
         }
 
@@ -167,22 +165,7 @@ static void serial_mode_task(void *arg)
             ESP_ERROR_CHECK(esp_now_add_peer(peer));
         }
 
-        // Send packet to client
-        espnow_send_param_t send_param;
-        memcpy(send_param.dest_mac, mac_address, MAC_ADDR_LEN);
-        espnow_data_prepare(&send_param, packet, pkt_len);
-        esp_err_t err = esp_now_send(send_param.dest_mac, send_param.buffer, send_param.len);
-        if (err != ESP_OK)
-        {
-            ESP_LOGE(SERIAL_TAG, "Send error %s", esp_err_to_name(err));
-        }
-
-        // Check to see if send was successful
-        espnow_event_send_t *send_evt;
-        xQueueReceive(espnow_send_queue, &send_evt, 1);
-        if (xQueueReceive(espnow_send_queue, &send_evt, portMAX_DELAY) != pdTRUE) {
-            ESP_LOGE(SERIAL_TAG, "Send failed");
-        }
+        espnow_data_send(mac_address, packet, pkt_len);
         
         xTaskDelayUntil(&xLastWakeTime, 1);
     }
@@ -213,7 +196,6 @@ void pilot_mode_task(void *arg)
         // Suspend task if we switch modes
         if (xSemaphoreTake(pilot_sem, 1) == pdTRUE) {
             ESP_LOGI(PILOT_TAG, "Switching to serial mode");
-            vTaskResume(serialMode);
             vTaskSuspend(pilotMode);
         }
 
