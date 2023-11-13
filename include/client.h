@@ -1,57 +1,56 @@
 #ifndef CLIENT_AP_H
 #define CLIENT_AP_H
 
-#define ESPNOW_WIFI_MODE WIFI_MODE_AP
-#define ESPNOW_WIFI_IF   ESP_IF_WIFI_AP
+#include "wifi.h"
+#include "lcm/comms.h"
 
-#define ESPNOW_CHANNEL          1                   //wifi channel - LEGAL: use only 1, 6, or 11 for FCC compliance & reliability
-#define ESPNOW_PMK              "pmk1234567890123"  //primary master key
-#define ESPNOW_DATA_MAX_LEN     100                 //max size of packet payload
+#define GPIO_RECV 3
+#define GPIO_SEND 2
+#define GPIO_CS 10
+#define GPIO_MOSI 11
+#define GPIO_SCLK 12
+#define GPIO_MISO 13
 
-#define ESPNOW_QUEUE_SIZE       6
+const char *CONNECT_TO_HOST_TAG = "CONNECT_TO_HOST";
 
-#define IS_BROADCAST_ADDR(addr) (memcmp(addr, s_client_client_mac, ESP_NOW_ETH_ALEN) == 0)
+void connect_to_host(uint8_t* host_mac_addr);
 
-typedef enum {
-    CLIENT_ESPNOW_SEND_CB,
-    CLIENT_ESPNOW_RECV_CB,
-} client_espnow_event_id_t;
+void connect_to_host(uint8_t* host_mac_addr) {
+    espnow_event_recv_t evt;
+    uint8_t msg[ESPNOW_DATA_MAX_LEN];
+    uint16_t data_len;
+    // Wait for first message to add host as peer
+    if (xQueueReceive(espnow_recv_queue, &evt, portMAX_DELAY) == pdTRUE)
+    {
+        ESP_LOGI(CONNECT_TO_HOST_TAG, "Received message.");
 
-typedef struct {
-    uint8_t mac_addr[ESP_NOW_ETH_ALEN];
-    esp_now_send_status_t status;
-} client_espnow_event_send_cb_t;
+        // Parse incoming packet
+        int ret = espnow_data_parse(evt.data, evt.data_len, msg, &data_len);
+        free(evt.data);
 
-typedef struct {
-    uint8_t mac_addr[ESP_NOW_ETH_ALEN];
-    uint8_t *data;
-    int data_len;
-} client_espnow_event_recv_cb_t;
+        // Check if data is invalid
+        if (ret != 0) {
+            ESP_LOGE(CONNECT_TO_HOST_TAG, "Received invalid data");
+        }
 
-typedef union {
-    client_espnow_event_send_cb_t send_cb;
-    client_espnow_event_recv_cb_t recv_cb;
-} client_espnow_event_info_t;
+        // Allocate peer
+        esp_now_peer_info_t *peer = malloc(sizeof(esp_now_peer_info_t));
+        if (peer == NULL)
+        {
+            ESP_LOGE(CONNECT_TO_HOST_TAG, "Malloc peer information fail");
+        }
+        memset(peer, 0, sizeof(esp_now_peer_info_t));
+        peer->channel = ESPNOW_CHANNEL;
+        peer->ifidx = ESPNOW_WIFI_IF;
+        peer->encrypt = false;
+        memcpy(peer->peer_addr, evt.mac_addr, MAC_ADDR_LEN);
 
-/* When ESPNOW sending or receiving callback function is called, post event to ESPNOW task. */
-typedef struct {
-    client_espnow_event_id_t id;
-    client_espnow_event_info_t info;
-} client_espnow_event_t;
-
-/* User defined field of ESPNOW data. */
-//this should be the same between client and client
-typedef struct {
-    uint8_t len;                          //length of payload
-    uint16_t crc;                         //CRC16 value of ESPNOW data.                             checksum
-    uint8_t payload[0];                   //Real payload of ESPNOW data.
-} __attribute__((packed)) comm_espnow_data_t;
-
-/* Parameters of sending ESPNOW data. */
-typedef struct {
-    int len;                              //Length of ESPNOW data to be sent (buffer), unit: byte.
-    uint8_t *buffer;                      //Buffer pointing to ESPNOW data.                         must be >= sizeof(comm_espnow_data_t)
-    uint8_t dest_mac[ESP_NOW_ETH_ALEN];   //MAC address of destination device.
-} client_espnow_send_param_t;
+        // Add peer
+        ESP_ERROR_CHECK(esp_now_add_peer(peer));
+        free(peer);
+        memcpy(host_mac_addr, evt.mac_addr, MAC_ADDR_LEN);
+        ESP_LOGI(CONNECT_TO_HOST_TAG, "Found host (MAC: "MACSTR")", MAC2STR(evt.mac_addr));
+    }
+}
 
 #endif
