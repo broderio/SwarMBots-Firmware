@@ -133,12 +133,6 @@ static void serial_mode_task(void *arg)
     {
         xLastWakeTime = xTaskGetTickCount();
 
-        // Suspend task if we switch modes
-        if (xSemaphoreTake(serial_sem, 1) == pdTRUE) {
-            ESP_LOGI(SERIAL_TAG, "Switching to pilot mode");
-            vTaskSuspend(serialMode);
-        }
-
         // Read mac address and validate
         uint8_t mac_address[MAC_ADDR_LEN];
         uint16_t pkt_len;
@@ -193,12 +187,6 @@ void pilot_mode_task(void *arg)
     {
         xLastWakeTime = xTaskGetTickCount();
 
-        // Suspend task if we switch modes
-        if (xSemaphoreTake(pilot_sem, 1) == pdTRUE) {
-            ESP_LOGI(PILOT_TAG, "Switching to serial mode");
-            vTaskSuspend(pilotMode);
-        }
-
         adc_oneshot_get_calibrated_result(adc1_handle, JS_Y_cali, ADC_CHANNEL_3, &vyAdc);
         adc_oneshot_get_calibrated_result(adc1_handle, JS_X_cali, ADC_CHANNEL_4, &vxAdc);
 
@@ -240,6 +228,40 @@ void pilot_mode_task(void *arg)
     }
 }
 
+void switch_task(void* args) 
+{
+    while (1)
+    {
+        // Wait for the semaphore
+        if (xSemaphoreTake(switch_sem, portMAX_DELAY) == pdTRUE)
+        {
+            // Check the switch state and suspend/resume tasks accordingly
+            if (doSerial)
+            {
+                ESP_LOGI("SWITCH", "Serial mode");
+
+                vTaskSuspend(pilotMode);
+                vTaskResume(serialMode);
+
+                // Remove ISR for buttons
+                gpio_isr_handler_remove(B1_PIN);
+                gpio_isr_handler_remove(B2_PIN);
+            }
+            else
+            {
+                ESP_LOGI("SWITCH", "Pilot mode");
+
+                vTaskSuspend(serialMode);
+                vTaskResume(pilotMode);
+
+                // Add ISR for buttons
+                gpio_isr_handler_add(B1_PIN, buttons_isr_handler, (void *)B1_PIN);
+                gpio_isr_handler_add(B2_PIN, buttons_isr_handler, (void *)B2_PIN);
+            }
+        }
+    }
+}
+
 void app_main()
 {
     // Init NVS
@@ -270,9 +292,10 @@ void app_main()
     
     // Create tasks
     xTaskCreate(espnow_recv_task, "espnow_recv_task", 4096, NULL, 4, NULL);
+    xTaskCreate(switch_task, "switch_task", 2048, NULL, 4, NULL);
     xTaskCreate(serial_mode_task, "serial_mode_task", 4096, NULL, 3, &serialMode);
     xTaskCreate(pilot_mode_task, "pilot_mode_task", 4096, NULL, 3, &pilotMode);
-
+    
     // for debugging
     // xTaskCreate(print_task, "print_task", 2048, NULL, 3, NULL);
 }
