@@ -97,7 +97,7 @@ static void espnow_recv_task(void *args)
                 continue;
             }
         }
-        ESP_LOGI(ESPNOW_RECV_TAG, "Sent %zu bytes\n", t.trans_len / 8);
+        ESP_LOGI(ESPNOW_RECV_TAG, "Sent %zu bytes over SPI", t.trans_len / 8);
     }
 }
 
@@ -120,13 +120,13 @@ void espnow_send_task(void *args)
             xSemaphoreGive(spi_mutex);
             if (ret != ESP_OK)
             {
-                ESP_LOGE(ESPNOW_SEND_TAG, "Error reading SPI transmission");
+                ESP_LOGE(ESPNOW_SEND_TAG, "Error reading SPI transmission.");
                 continue;
             }
         }
 
         if (t.trans_len > t.length) {
-            ESP_LOGE(ESPNOW_SEND_TAG, "Received more bytes than expected.");
+            ESP_LOGE(ESPNOW_SEND_TAG, "Received more bytes than expected over SPI.");
             continue;
         }
 
