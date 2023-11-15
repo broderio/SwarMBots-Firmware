@@ -2,4 +2,4 @@
 .vscode
 **/build/
 **/debug/
-**/sdkconfig*
+**/sdkconfig.old

@@ -87,15 +87,14 @@ static void espnow_recv_task(void *args)
         t.rx_buffer = NULL;
         t.trans_len = 0;
 
+        ret = ESP_FAIL;
         if (xSemaphoreTake(spi_mutex, portMAX_DELAY) == pdTRUE)
         {
-            ret = ESP_OK;
-            spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
+            ret = spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
             xSemaphoreGive(spi_mutex);
             if (ret != ESP_OK)
             {
-                ESP_LOGI(ESPNOW_RECV_TAG, "Error transmitting: 0x%x", ret);
-                continue;
+                ESP_LOGE(ESPNOW_RECV_TAG, "SPI transmission failed.");
             }
         }
         ESP_LOGI(ESPNOW_RECV_TAG, "Sent %zu bytes over SPI", t.trans_len / 8);
@@ -121,20 +120,23 @@ void espnow_send_task(void *args)
             t.rx_buffer = recvbuf;
             t.trans_len = 0;
 
+            ret = ESP_FAIL;
             if (xSemaphoreTake(spi_mutex, portMAX_DELAY) == pdTRUE)
             {
                 ret = spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
                 xSemaphoreGive(spi_mutex);
                 if (ret != ESP_OK)
                 {
-                    ESP_LOGE(ESPNOW_SEND_TAG, "Error reading SPI transmission.");
-                    continue;
+                    ESP_LOGE(ESPNOW_SEND_TAG, "SPI transmission failed.");
                 }
             }
 
             // Copy data into packet (removes ROS header and footer)
-            uint8_t *msg_start = t.rx_bugger + 7;
+            uint8_t *msg_start = t.rx_buffer + 7;
             size_t msg_len = t.trans_len / 8 - 8;
+
+            // ESP_LOGI(ESPNOW_SEND_TAG, "Received SPI packet of len: %u.", msg_len);
+
             memcpy(full_pkt + pkt_idx, msg_start, msg_len);
             pkt_idx += msg_len;
         }
@@ -146,7 +148,7 @@ void espnow_send_task(void *args)
         }
 
         // Add checksum to data for UART verification
-        pkt_idx[full_pkt_len - 1] = checksum(pkt_idx, full_pkt_len - 1);
+        full_pkt[full_pkt_len - 1] = checksum(full_pkt, full_pkt_len - 1);
 
         espnow_data_send(host_mac_addr, full_pkt, full_pkt_len);
     }
@@ -183,7 +185,7 @@ void app_main(void)
     xTaskCreate(espnow_send_task, "espnow_send_task", 2048 * 4, NULL, 4, &send_task_handle);
     xTaskCreate(espnow_recv_task, "espnow_recv_task", 2048 * 4, NULL, 4, &recv_task_handle);
 
-// Silence logs if we are building release version
+    // Silence logs if we are building release version
 #ifdef NDEBUG
     ESP_LOGI("MAIN", "Silencing logs.");
     esp_log_level_set("*", ESP_LOG_NONE);

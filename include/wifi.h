@@ -79,7 +79,7 @@ void wifi_init(void)
     ESP_ERROR_CHECK(esp_wifi_start());
 
     // NOTE: may need to add channel negotiation logic
-    ESP_ERROR_CHECK(esp_wifi_set_channel(ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE));
+    ESP_ERROR_CHECK(esp_wifi_set_channel(ESPNOW_CHANNEL, WIFI_SECOND_CHAN_ABOVE));
 }
 
 /* ESPNOW sending or receiving callback function is called in WiFi task.
