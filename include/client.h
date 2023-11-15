@@ -49,6 +49,11 @@ void connect_to_host(uint8_t* host_mac_addr) {
         ESP_ERROR_CHECK(esp_now_add_peer(peer));
         free(peer);
         memcpy(host_mac_addr, evt.mac_addr, MAC_ADDR_LEN);
+        esp_now_rate_config_t rate_config = {
+            .phymode = WIFI_PHY_MODE_HE20,
+            .rate = WIFI_PHY_RATE_MCS7_SGI,
+        };
+        esp_now_set_peer_rate_config(evt.mac_addr, &rate_config);
         ESP_LOGI(CONNECT_TO_HOST_TAG, "Found host (MAC: "MACSTR")", MAC2STR(evt.mac_addr));
     }
 }

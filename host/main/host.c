@@ -54,6 +54,7 @@ static void espnow_recv_task(void *args)
 {
     espnow_event_recv_t evt;
     uint8_t msg[ESPNOW_DATA_MAX_LEN];
+    uint8_t packet[ESPNOW_DATA_MAX_LEN];
     uint16_t data_len;
     int ret;
     uint8_t mac[MAC_ADDR_LEN];
@@ -93,10 +94,10 @@ static void espnow_recv_task(void *args)
 
         // Create BOTPKT
         size_t packet_len = data_len + MAC_ADDR_LEN + 3;
-        uint8_t* packet = malloc(packet_len);
         packet[0] = 0xff;
-        packet[1] = (uint8_t) (data_len%255);
-        packet[2] = (uint8_t) (data_len>>8);
+        // Length of actual data (minus 1 for the checksum at the end, should always =204)
+        packet[1] = (uint8_t) ((data_len - 1) % 255);
+        packet[2] = (uint8_t) ((data_len - 1) >> 8);
         memcpy(packet + 3, evt.mac_addr, MAC_ADDR_LEN);
         memcpy(packet + MAC_ADDR_LEN + 3, msg, data_len);
 
@@ -116,7 +117,7 @@ static void serial_mode_task(void *arg)
 
     // Configure UART
     uart_config_t uart_config = {
-        .baud_rate = 115200,
+        .baud_rate = 921600,
         .data_bits = UART_DATA_8_BITS,
         .parity = UART_PARITY_DISABLE,
         .stop_bits = UART_STOP_BITS_1,
@@ -261,12 +262,6 @@ void app_main()
 
     // Set the mode given the switch state defined in controller.c
     doSerial = !(bool)gpio_get_level(SW_PIN);
-
-    // uint8_t s_peer_mac[MAC_ADDR_LEN] = {0xEC, 0xDA, 0x3B, 0x8E, 0xD8, 0xDD};
-    // add_peer(s_peer_mac);
-
-    // uint8_t s_peer2_mac[MAC_ADDR_LEN] = {0x48, 0x27, 0xE2, 0xFD, 0x59, 0xF1};
-    // add_peer(s_peer2_mac);
     
     // Create tasks
     xTaskCreate(espnow_recv_task, "espnow_recv_task", 4096, NULL, 4, NULL);
@@ -276,4 +271,11 @@ void app_main()
     
     // for debugging
     // xTaskCreate(print_task, "print_task", 2048, NULL, 3, NULL);
+
+    // Silence logs for UART communication if we are building release version
+    #ifdef NDEBUG
+        ESP_LOGI("MAIN", "Silencing logs.");
+        esp_log_level_set("*", ESP_LOG_NONE);
+    #endif
+    
 }
