@@ -18,6 +18,11 @@ void add_peer(uint8_t* mac_address) {
     peers[peer_num].encrypt = false;
     memcpy(peers[peer_num].peer_addr, mac_address, ESP_NOW_ETH_ALEN);
     ESP_ERROR_CHECK(esp_now_add_peer(&peers[peer_num]));
+    esp_now_rate_config_t rate_config = {
+            .phymode = WIFI_PHY_MODE_HT40,
+            .rate = WIFI_PHY_RATE_MCS7_SGI,
+        };
+    esp_now_set_peer_rate_config(mac_address, &rate_config);
     peer_num++;
 }
 

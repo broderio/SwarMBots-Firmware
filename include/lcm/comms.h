@@ -3,6 +3,7 @@
 #include <memory.h>
 #include "driver/uart.h"
 #include "wifi.h"
+#include "mbot_lcm_msgs_serial.h"
 
 #ifndef COMMS_COMMONS_H
 #define COMMS_COMMONS_H
@@ -37,6 +38,15 @@ enum message_topics{
     MBOT_MOTOR_PWM = 233,
     MBOT_VEL = 234
 };
+
+typedef struct __attribute__((__packed__)) packets_wrapper_t {
+    serial_mbot_encoders_t encoders;
+    serial_pose2D_t odom;
+    serial_mbot_imu_t imu;
+    serial_twist2D_t mbot_vel;
+    serial_mbot_motor_vel_t motor_vel;
+    serial_mbot_motor_pwm_t motor_pwm;
+} packets_wrapper_t;
 
 uint8_t checksum(uint8_t* addends, int len);
 void read_mac_address(uint8_t* mac_address, uint16_t* pkt_len);
