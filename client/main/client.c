@@ -186,7 +186,7 @@ void app_main(void)
     xTaskCreate(espnow_recv_task, "espnow_recv_task", 2048 * 4, NULL, 4, &recv_task_handle);
 
     // Silence logs if we are building release version
-#ifdef NDEBUG
+#ifndef DEBUG
     ESP_LOGI("MAIN", "Silencing logs.");
     esp_log_level_set("*", ESP_LOG_NONE);
 #endif
