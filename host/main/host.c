@@ -198,6 +198,7 @@ void pilot_mode_task(void *arg)
             uint8_t* packet = command_serializer(vx, 0, wz);
             uint16_t pkt_len = sizeof(serial_twist2D_t) + ROS_PKG_LEN;
             espnow_data_send(peer.peer_addr, packet, pkt_len);
+            free(packet);
         }
         
         // ESP_LOGI(PILOT_TAG, "GPIO17: %d\n", gpio_get_level(SW_PIN));
