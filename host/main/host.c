@@ -115,6 +115,7 @@ static void serial_mode_task(void *arg)
 
     ESP_LOGI(SERIAL_TAG, "Serial mode");
 
+
     // Configure UART
     uart_config_t uart_config = {
         .baud_rate = 921600,
@@ -274,7 +275,7 @@ void app_main()
     // xTaskCreate(print_task, "print_task", 2048, NULL, 3, NULL);
 
     // Silence logs for UART communication if we are building release version
-    #ifdef NDEBUG
+    #ifndef DEBUG
         ESP_LOGI("MAIN", "Silencing logs.");
         esp_log_level_set("*", ESP_LOG_NONE);
     #endif
