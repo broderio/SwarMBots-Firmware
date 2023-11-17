@@ -54,6 +54,8 @@
 #define PREPARE_TAG             "PREPARE"           /**< Tag for logging from \c espnow_data_prepare() */
 #define DATA_SEND_TAG           "DATA_SEND"         /**< Tag for logging from \c espnow_data_send() */
 
+#define DEBUG 1
+
 /* ==================================== GLOBAL VARIABLES ==================================== */
 
 extern QueueHandle_t espnow_send_queue;         /**< Queue of send events populated in \c espnow_send_cb()*/

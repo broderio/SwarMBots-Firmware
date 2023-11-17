@@ -203,16 +203,17 @@ serial_mode_task(void* arg) {
     int32_t intr_alloc_flags;
     uint8_t packet[ESPNOW_DATA_MAX_LEN];
 
-    /* Suspend immediately if in controller mode */
-    if (!doSerial) {
-        vTaskSuspend(NULL);
-    }
-
-    ESP_LOGI(SERIAL_TAG, "Serial mode");
 
     intr_alloc_flags = 0;
     ESP_ERROR_CHECK(uart_driver_install(0, 2 * ESPNOW_DATA_MAX_LEN, 0, 0, NULL, intr_alloc_flags));
     ESP_ERROR_CHECK(uart_param_config(UART_PORT_NUM, &uart_config));
+
+    /* Suspend immediately if in controller mode */
+    if (!doSerial) {
+        vTaskSuspend(NULL);
+    }
+    
+    ESP_LOGI(SERIAL_TAG, "Serial mode");
 
     while (1) {
         uint16_t pkt_len;
@@ -373,7 +374,7 @@ app_main() {
 
     /* Set the mode given the switch state defined in controller.c */
     doSerial = !(bool)gpio_get_level(SW_PIN);
-
+    
     /* Create tasks */
     xTaskCreate(espnow_recv_task, "espnow_recv_task", 4096, NULL, 4, NULL);
     xTaskCreate(switch_task, "switch_task", 4096, NULL, 4, NULL);
