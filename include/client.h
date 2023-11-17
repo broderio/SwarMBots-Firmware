@@ -15,7 +15,7 @@
  * owned collectively by the SwarMBots team members. Permission to replicate, 
  * modify, redistribute, sell, or otherwise make use of this software and associated 
  * documentation files is granted only insofar as is specified in the license text.
- * For license details, visit:
+ * For license details, see LICENSE.MD or visit:
  * https://polyformproject.org/licenses/noncommercial/1.0.0/
  * 
  * SwarMBots team members:
@@ -51,7 +51,7 @@
 
 /* ==================================== FUNCTION PROTOTYPES ==================================== */
 
-void connect_to_host(const uint8_t* const host_mac_addr);
+void connect_to_host(uint8_t* host_mac_addr);
 
 /* ==================================== FUNCTION DEFINITIONS ==================================== */
 
@@ -64,7 +64,7 @@ void connect_to_host(const uint8_t* const host_mac_addr);
  * @param host_mac_addr     The MAC address of the host to be returned (value overwritten by function)
  */
 void
-connect_to_host(const uint8_t* const host_mac_addr) {
+connect_to_host(uint8_t* host_mac_addr) {
     espnow_event_recv_t evt;
 
     uint16_t data_len;
@@ -73,7 +73,10 @@ connect_to_host(const uint8_t* const host_mac_addr) {
     /* Wait for first message to add host as peer */
     if (xQueueReceive(espnow_recv_queue, &evt, portMAX_DELAY) == pdTRUE) {
         esp_now_peer_info_t* peer;
-        esp_now_rate_config_t rate_config;
+        esp_now_rate_config_t rate_config = {
+            .phymode = WIFI_PHY_MODE_HT40,
+            .rate = WIFI_PHY_RATE_MCS7_SGI,
+        };
 
         int32_t ret;
 
@@ -103,10 +106,6 @@ connect_to_host(const uint8_t* const host_mac_addr) {
         ESP_ERROR_CHECK(esp_now_add_peer(peer));
         free(peer);
         memcpy(host_mac_addr, evt.mac_addr, MAC_ADDR_LEN);
-        rate_config = {
-            .phymode = WIFI_PHY_MODE_HT40,
-            .rate = WIFI_PHY_RATE_MCS7_SGI,
-        };
         esp_now_set_peer_rate_config(evt.mac_addr, &rate_config);
         ESP_LOGI(CONNECT_TO_HOST_TAG, "Found host (MAC: " MACSTR ")", MAC2STR(evt.mac_addr));
     }

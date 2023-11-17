@@ -21,7 +21,7 @@
  * owned collectively by the SwarMBots team members. Permission to replicate, 
  * modify, redistribute, sell, or otherwise make use of this software and associated 
  * documentation files is granted only insofar as is specified in the license text.
- * For license details, visit:
+ * For license details, see LICENSE.MD or visit:
  * https://polyformproject.org/licenses/noncommercial/1.0.0/
  * 
  * SwarMBots team members:
@@ -150,7 +150,7 @@ espnow_recv_task(void* args) {
                 ESP_LOGE(ESPNOW_RECV_TAG, "SPI transmission failed.");
             }
         }
-        ESP_LOGI(ESPNOW_RECV_TAG, "Sent %zu bytes over SPI", t.trans_len / 8);
+        ESP_LOGI(ESPNOW_RECV_TAG, "Sent %zu bytes over SPI", transaction.trans_len / 8);
     }
 }
 
@@ -163,7 +163,7 @@ espnow_recv_task(void* args) {
  * @param args      Ignores args. Parameter present for FreeRTOS compatibility.
  * @sa              espnow_recv_task()
  */
-void
+static void
 espnow_send_task(void* args) {
     esp_err_t ret;
     spi_slave_transaction_t transaction;

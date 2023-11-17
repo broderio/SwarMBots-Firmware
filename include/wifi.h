@@ -15,7 +15,7 @@
  * owned collectively by the SwarMBots team members. Permission to replicate, 
  * modify, redistribute, sell, or otherwise make use of this software and associated 
  * documentation files is granted only insofar as is specified in the license text.
- * For license details, visit:
+ * For license details, see LICENSE.MD or visit:
  * https://polyformproject.org/licenses/noncommercial/1.0.0/
  * 
  * SwarMBots team members:
@@ -25,6 +25,7 @@
  * Gabriel Lounsbury    ( lounsbg@umich.edu ),
  * Daniel Benedict      ( benedan@umich.edu )
  */
+
 #ifndef WIFI_H
 #define WIFI_H
 
@@ -103,12 +104,12 @@ typedef struct espnow_event_send{
 
 /* ==================================== FUNCTION PROTOTYPES ==================================== */
 
-void espnow_send_cb(const uint8_t* const mac_addr, esp_now_send_status_t status);
-void espnow_recv_cb(const esp_now_recv_info_t* const recv_info, const uint8_t* const data, int len);
+void espnow_send_cb(const uint8_t* mac_addr, esp_now_send_status_t status);
+void espnow_recv_cb(const esp_now_recv_info_t* recv_info, const uint8_t* data, int len);
 
-int espnow_data_parse(const uint8_t* const data, uint16_t data_len, uint8_t* const msg, uint16_t* const len);
-int espnow_data_prepare(espnow_send_param_t* const send_param, uint8_t* const data, int len);
-int espnow_data_send(const uint8_t* const mac_addr, const uint8_t* const data, int len);
+int espnow_data_parse(uint8_t* data, uint16_t data_len, uint8_t* msg, uint16_t* len);
+int espnow_data_prepare(espnow_send_param_t* send_param, uint8_t* data, int len);
+int espnow_data_send(uint8_t* mac_addr, uint8_t* data, int len);
 
 void wifi_init(void);
 void espnow_init(void);
@@ -123,7 +124,7 @@ void espnow_deinit(void);
  * @param status    Status of send (success or failure)
  */
 void
-espnow_send_cb(const uint8_t* const mac_addr, esp_now_send_status_t status) {
+espnow_send_cb(const uint8_t* mac_addr, esp_now_send_status_t status) {
     espnow_event_send_t evt;
 
     if (mac_addr == NULL) {
@@ -148,7 +149,7 @@ espnow_send_cb(const uint8_t* const mac_addr, esp_now_send_status_t status) {
  * @param len       Length of \c data
  */
 void
-espnow_recv_cb(const esp_now_recv_info_t* const recv_info, const uint8_t* const data, int len) {
+espnow_recv_cb(const esp_now_recv_info_t* recv_info, const uint8_t* data, int len) {
     espnow_event_recv_t evt;
 
     if (recv_info->src_addr == NULL || data == NULL || len <= 0) {
@@ -186,7 +187,7 @@ espnow_recv_cb(const esp_now_recv_info_t* const recv_info, const uint8_t* const 
  * @return          0 if parse was successful, else -1 (and logs an error)
  */
 int
-espnow_data_parse(const uint8_t* const data, uint16_t data_len, uint8_t* const msg, uint16_t* const len) {
+espnow_data_parse(uint8_t* data, uint16_t data_len, uint8_t* msg, uint16_t* len) {
     comm_espnow_data_t* buf;
 
     uint16_t crc_cal;
@@ -222,7 +223,7 @@ espnow_data_parse(const uint8_t* const data, uint16_t data_len, uint8_t* const m
  * @return              0 if prepare was successful, else -1 (and logs an error)
  */
 int
-espnow_data_prepare(espnow_send_param_t* const send_param, uint8_t* const data, int len) {
+espnow_data_prepare(espnow_send_param_t* send_param, uint8_t* data, int len) {
     comm_espnow_data_t* buf;
 
     int32_t send_param_len;
@@ -261,7 +262,7 @@ espnow_data_prepare(espnow_send_param_t* const send_param, uint8_t* const data, 
  * @return              0 if transaction was successful, else -1 (and logs an error)
  */
 int
-espnow_data_send(const uint8_t* const mac_addr, const uint8_t* const data, int len) {
+espnow_data_send(uint8_t* mac_addr, uint8_t* data, int len) {
     espnow_send_param_t send_param;
     espnow_event_send_t* send_evt;
 
@@ -293,13 +294,11 @@ espnow_data_send(const uint8_t* const mac_addr, const uint8_t* const data, int l
  */
 void
 wifi_init(void) {
-    wifi_init_config_t cfg;
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
 
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
-    cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-
     ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));    /* sets to use only ram for storage */
     ESP_ERROR_CHECK(esp_wifi_set_mode(ESPNOW_WIFI_MODE));       /* AP */
     ESP_ERROR_CHECK(esp_wifi_start());

@@ -15,7 +15,7 @@
  * owned collectively by the SwarMBots team members. Permission to replicate, 
  * modify, redistribute, sell, or otherwise make use of this software and associated 
  * documentation files is granted only insofar as is specified in the license text.
- * For license details, visit:
+ * For license details, see LICENSE.MD or visit:
  * https://polyformproject.org/licenses/noncommercial/1.0.0/
  * 
  * SwarMBots team members:
@@ -43,13 +43,13 @@
 /* ==================================== GLOBAL VARIABLES ==================================== */
 
 extern esp_now_peer_info_t peers[8];            /**< Array of peer info (to avoid using built-in ESPNOW functions)*/
-extern int32_t peer_num = 0;                    /**< The number of known peers*/
+extern int32_t peer_num;                    /**< The number of known peers*/
 
 /* ==================================== DATA STRUCTS ==================================== */
 
 /* ==================================== FUNCTION PROTOTYPES ==================================== */
 
-void add_peer(const uint8_t* const mac_address);
+void add_peer(uint8_t* mac_address);
 
 /* ==================================== FUNCTION DEFINITIONS ==================================== */
 
@@ -62,8 +62,11 @@ void add_peer(const uint8_t* const mac_address);
  * @param mac_address   MAC address of new peer
  */
 void
-add_peer(const uint8_t* const mac_address) {
-    esp_now_rate_config_t rate_config;
+add_peer(uint8_t* mac_address) {
+    esp_now_rate_config_t rate_config = {
+        .phymode = WIFI_PHY_MODE_HT40,
+        .rate = WIFI_PHY_RATE_MCS7_SGI,
+    };
 
     memset(&peers[peer_num], 0, sizeof(esp_now_peer_info_t));
     peers[peer_num].channel = ESPNOW_CHANNEL;
@@ -71,10 +74,6 @@ add_peer(const uint8_t* const mac_address) {
     peers[peer_num].encrypt = false;
     memcpy(peers[peer_num].peer_addr, mac_address, ESP_NOW_ETH_ALEN);
     ESP_ERROR_CHECK(esp_now_add_peer(&peers[peer_num]));
-    rate_config = {
-        .phymode = WIFI_PHY_MODE_HT40,
-        .rate = WIFI_PHY_RATE_MCS7_SGI,
-    };
     esp_now_set_peer_rate_config(mac_address, &rate_config);
     ++peer_num;
 }

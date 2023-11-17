@@ -15,7 +15,7 @@
  * owned collectively by the SwarMBots team members. Permission to replicate, 
  * modify, redistribute, sell, or otherwise make use of this software and associated 
  * documentation files is granted only insofar as is specified in the license text.
- * For license details, visit:
+ * For license details, see LICENSE.MD or visit:
  * https://polyformproject.org/licenses/noncommercial/1.0.0/
  * 
  * SwarMBots team members:
@@ -43,22 +43,22 @@
 
 /* ==================================== FUNCTION PROTOTYPES ==================================== */
 
-void spi_post_setup_cb(const spi_slave_transaction_t* const trans);
-void spi_post_trans_cb(const spi_slave_transaction_t* const trans);
+void spi_post_setup_cb(spi_slave_transaction_t* trans);
+void spi_post_trans_cb(spi_slave_transaction_t* trans);
 
-int
-spi_init(void)
+int spi_init(void);
 
-    /* ==================================== FUNCTION DEFINITIONS ==================================== */
+/* ==================================== FUNCTION DEFINITIONS ==================================== */
 
-    /**
+/**
  * @brief           Callback for transaction queue. Sets handshake line high.
  * 
  * @details         Called after a transaction is queued and ready for pickup by master. We use this to set the handshake line high.
  * 
  * @param trans     Queued transaction information
  */
-    void spi_post_setup_cb(spi_slave_transaction_t* trans) {
+void
+spi_post_setup_cb(spi_slave_transaction_t* trans) {
     if (trans->tx_buffer == NULL) {
         gpio_set_level(GPIO_RECV, 1);
     } else {
@@ -89,13 +89,7 @@ spi_post_trans_cb(spi_slave_transaction_t* trans) {
  */
 int
 spi_init(void) {
-    spi_bus_config_t buscfg;
-    spi_slave_interface_config_t slvcfg;
-    esp_err_t ret;
-    gpio_config_t io_conf;
-
-    /* Configuration for the SPI bus */
-    buscfg = {
+    spi_bus_config_t buscfg = {                 /* Configuration for the SPI bus *//* Configuration for the SPI bus */
         .mosi_io_num = GPIO_MOSI,
         .miso_io_num = GPIO_MISO,
         .sclk_io_num = GPIO_SCLK,
@@ -103,8 +97,7 @@ spi_init(void) {
         .quadhd_io_num = -1,
     };
 
-    /* Configuration for the SPI slave interface */
-    slvcfg = {
+    spi_slave_interface_config_t slvcfg = {     /* Configuration for the SPI slave interface */
         .mode = 0,
         .spics_io_num = GPIO_CS,
         .queue_size = 6,
@@ -112,6 +105,9 @@ spi_init(void) {
         .post_setup_cb = spi_post_setup_cb,
         .post_trans_cb = spi_post_trans_cb,
     };
+
+    esp_err_t ret;
+    gpio_config_t io_conf;
 
     /* Enable pull-ups on SPI lines so we don't detect rogue pulses when no master is connected. */
     gpio_set_pull_mode(GPIO_MOSI, GPIO_PULLUP_ONLY);

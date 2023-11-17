@@ -20,7 +20,7 @@
  * owned collectively by the SwarMBots team members. Permission to replicate, 
  * modify, redistribute, sell, or otherwise make use of this software and associated 
  * documentation files is granted only insofar as is specified in the license text.
- * For license details, visit:
+ * For license details, see LICENSE.MD or visit:
  * https://polyformproject.org/licenses/noncommercial/1.0.0/
  * 
  * SwarMBots team members:
@@ -74,8 +74,8 @@ TaskHandle_t serialMode;                        /**< Handle for task \c serial_m
 TaskHandle_t pilotMode;                         /**< Handle for task \c pilot_mode_task() */
 
 int32_t peer_num = 0;                           /**< The number of known peers */
-int32_t joystick_x;                             /**< X value read from the joystick */
-int32_t joystick_y;                             /**< Y value read from the joystick */
+int joystick_x;                             /**< X value read from the joystick */
+int joystick_y;                             /**< Y value read from the joystick */
 
 bool doSerial = true;                           /**< Tracks whether the host is in serial or pilot mode */
 
@@ -189,7 +189,15 @@ espnow_recv_task(void* args) {
  */
 static void
 serial_mode_task(void* arg) {
-    uart_config_t uart_config;
+    uart_config_t uart_config = {               /* Configure UART */
+        .baud_rate = 921600,
+        .data_bits = UART_DATA_8_BITS,
+        .parity = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+        .source_clk = UART_SCLK_DEFAULT,
+    };
+    
     TickType_t xLastWakeTime;
 
     int32_t intr_alloc_flags;
@@ -201,16 +209,6 @@ serial_mode_task(void* arg) {
     }
 
     ESP_LOGI(SERIAL_TAG, "Serial mode");
-
-    /* Configure UART */
-    uart_config = {
-        .baud_rate = 921600,
-        .data_bits = UART_DATA_8_BITS,
-        .parity = UART_PARITY_DISABLE,
-        .stop_bits = UART_STOP_BITS_1,
-        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-        .source_clk = UART_SCLK_DEFAULT,
-    };
 
     intr_alloc_flags = 0;
     ESP_ERROR_CHECK(uart_driver_install(0, 2 * ESPNOW_DATA_MAX_LEN, 0, 0, NULL, intr_alloc_flags));
@@ -261,7 +259,7 @@ pilot_mode_task(void* arg) {
     espnow_send_param_t send_param;
     TickType_t xLastWakeTime;
 
-    int32_t vy_adc, vx_adc;
+    int vy_adc, vx_adc;
 
     float max;
 
@@ -353,7 +351,7 @@ switch_task(void* args) {
  * @brief           Main function of the program. Initializes wifi, ESPNOW, and controller. 
  *                  Launches tasks for receiving over espnow, serial mode, pilot mode, and switching modes.
  */
-static void
+void
 app_main() {
     esp_err_t ret;
 

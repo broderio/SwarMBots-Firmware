@@ -15,7 +15,7 @@
  * owned collectively by the SwarMBots team members. Permission to replicate, 
  * modify, redistribute, sell, or otherwise make use of this software and associated 
  * documentation files is granted only insofar as is specified in the license text.
- * For license details, visit:
+ * For license details, see LICENSE.MD or visit:
  * https://polyformproject.org/licenses/noncommercial/1.0.0/
  * 
  * SwarMBots team members:
@@ -52,21 +52,23 @@
 
 /* ==================================== GLOBAL VARIABLES ==================================== */
 
-static size_t curr_bot = 0;                     /**< Stores the index of the current robot being controlled */
+static size_t curr_bot = 0; /**< Stores the index of the current robot being controlled */
 
-static uint32_t last_button = 0;                /**< Stores the port of the last button pressed */
-static uint32_t last_press = 0;                 /**< Stores the time of the last button press */
-static uint32_t last_switch = 0;                /**< Stores the time of the last switch toggle */
+static uint32_t last_button = 0; /**< Stores the port of the last button pressed */
+static uint32_t last_press = 0;  /**< Stores the time of the last button press */
+static uint32_t last_switch = 0; /**< Stores the time of the last switch toggle */
 
-adc_oneshot_unit_handle_t adc1_handle;          /**< Handle for referencing the joystick adc */
-static adc_cali_handle_t JS_Y_cali;             /**< Handle for storing joystick Y calibration data */
-static adc_cali_handle_t JS_X_cali;             /**< Handle for storing joystick X calibration data */
+static QueueHandle_t gpio_evt_queue = NULL; /**< Queue for GPIO level change events*/
 
-extern bool doSerial = true;                    /**< Tracks whether the host is in serial or pilot mode */
-extern SemaphoreHandle_t switch_sem;            /**< Semaphore used to wait for mode switch */
+adc_oneshot_unit_handle_t adc1_handle; /**< Handle for referencing the joystick adc */
+static adc_cali_handle_t JS_Y_cali;    /**< Handle for storing joystick Y calibration data */
+static adc_cali_handle_t JS_X_cali;    /**< Handle for storing joystick X calibration data */
 
-extern TaskHandle_t serialMode;                 /**< Handle for host's serial mode task */
-extern TaskHandle_t pilotMode;                  /**< Handle for host's pilot mode task */
+extern bool doSerial;         /**< Tracks whether the host is in serial or pilot mode */
+extern SemaphoreHandle_t switch_sem; /**< Semaphore used to wait for mode switch */
+
+extern TaskHandle_t serialMode; /**< Handle for host's serial mode task */
+extern TaskHandle_t pilotMode;  /**< Handle for host's pilot mode task */
 
 /* ==================================== DATA STRUCTS ==================================== */
 
@@ -78,7 +80,7 @@ static void buttons_isr_handler(void* arg);
 static void switch_isr_handler(void* arg);
 
 void controller_init();
-void calibrate_joystick(int* const x, int* const y, size_t n);
+void calibrate_joystick(int* x, int* y, size_t n);
 
 /* ==================================== FUNCTION DEFINITIONS ==================================== */
 
@@ -157,50 +159,56 @@ switch_isr_handler(void* arg) {
  */
 void
 controller_init() {
-    adc_oneshot_unit_init_cfg_t init_config1;
-    adc_oneshot_chan_cfg_t adc_config;
-    adc_cali_curve_fitting_config_t cali_config;
-    gpio_config_t b_config;
-    gpio_config_t sw_config;
-
-    /* Configure the ADC */
-    init_config1 = {
+    adc_oneshot_unit_init_cfg_t init_config1 = {
+        /* Configure the ADC */
         .unit_id = ADC_UNIT_1,
     };
-    ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config1, &adc1_handle));
 
-    adc_config = {
+    adc_oneshot_chan_cfg_t adc_config = {
         .bitwidth = ADC_BITWIDTH_DEFAULT,
         .atten = ADC_ATTEN_DB_11,
     };
-    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ADC_CHANNEL_3, &adc_config));
-    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ADC_CHANNEL_4, &adc_config));
 
-    cali_config = {
+    adc_cali_curve_fitting_config_t cali_config = {
         .unit_id = ADC_UNIT_1,
         .chan = ADC_CHANNEL_3,
         .atten = ADC_ATTEN_DB_0,
         .bitwidth = ADC_BITWIDTH_DEFAULT,
     };
-    adc_cali_create_scheme_curve_fitting(&cali_config, &JS_Y_cali);
-    cali_config.chan = ADC_CHANNEL_4;
-    adc_cali_create_scheme_curve_fitting(&cali_config, &JS_X_cali);
 
-    /* Configure the GPIOs */
-    b_config = {
+    gpio_config_t b_config = {
         .intr_type = GPIO_INTR_POSEDGE,
         .pin_bit_mask = (0b1 << B1_PIN) | (0b1 << B2_PIN),
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = 1,
     };
-    gpio_config(&b_config);
 
-    sw_config = {
-        .intr_type = GPIO_INTR_ANYEDGE, .pin_bit_mask = (0b1 << SW_PIN), .mode = GPIO_MODE_INPUT, .pull_down_en = 1};
+    gpio_config_t sw_config = {
+        .intr_type = GPIO_INTR_ANYEDGE,
+        .pin_bit_mask = (0b1 << SW_PIN),
+        .mode = GPIO_MODE_INPUT,
+        .pull_down_en = 1,
+    };
+
+    ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config1, &adc1_handle));
+
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ADC_CHANNEL_3, &adc_config));
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ADC_CHANNEL_4, &adc_config));
+
+    adc_cali_create_scheme_curve_fitting(&cali_config, &JS_Y_cali);
+    cali_config.chan = ADC_CHANNEL_4;
+    adc_cali_create_scheme_curve_fitting(&cali_config, &JS_X_cali);
+
+    /* Configure the GPIOs */
+    gpio_config(&b_config);
     gpio_config(&sw_config);
 
     /* Install gpio isr service */
     gpio_install_isr_service(0);
+
+    
+    /* Create a queue to handle gpio event from isr */
+    gpio_evt_queue = xQueueCreate(10, sizeof(uint32_t));
 
     /* Initialize switch semaphore */
     switch_sem = xSemaphoreCreateBinary();
@@ -219,8 +227,8 @@ controller_init() {
  * @param n         number of samples to take
  */
 void
-calibrate_joystick(int32_t* const x, int32_t* const y, size_t n) {
-    int32_t adc_val, x_tmp = 0, y_tmp = 0;
+calibrate_joystick(int* x, int* y, size_t n) {
+    int adc_val, x_tmp = 0, y_tmp = 0;
 
     for (size_t i = 0; i < n; ++i) {
         adc_oneshot_get_calibrated_result(adc1_handle, JS_X_cali, ADC_CHANNEL_4, &adc_val);
