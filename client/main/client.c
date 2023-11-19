@@ -216,31 +216,45 @@ espnow_send_task(void* args) {
     }
 }
 
+/**
+ * @brief           Task that handles timesyncing with the MBoard
+ * 
+ * @details         Sends a timesync message to the MBoard every 500ms. 
+ *                  This task should run 2 times per second. Minimum necessary is 1 time per second.
+ * 
+ * @param args      Ignores args. Parameter present for FreeRTOS compatibility.
+ * @sa              timesync_task()
+ */
 void timesync_task(void *args)
 {
-    xSemaphoreTake(wifi_ready, portMAX_DELAY);
-    TickType_t last_wake_time = xTaskGetTickCount();
+    esp_err_t ret;
+    spi_slave_transaction_t transaction;
+    TickType_t last_wake_time;
+    ESP_LOGI("TIMESYNC", "Starting timesync task.");
     while (1)
     {
-        // Send timesync message
+        last_wake_time = xTaskGetTickCount();
+
+        /* Create timesync message */
         uint64_t time = esp_timer_get_time();
         uint8_t *packet = create_timesync_packet(time);
-        espnow_data_send(host_mac_addr, packet, ROS_PKG_LEN + sizeof(serial_timestamp_t));
+        size_t pkt_len = sizeof(serial_timestamp_t) + ROS_PKG_LEN;
 
-        vTaskDelayUntil(&last_wake_time, 500 / portTICK_PERIOD_MS);
-    }
-}
+         /* Populate SPI packet */
+        transaction.length = pkt_len * 8;
+        transaction.tx_buffer = packet;
+        transaction.rx_buffer = NULL;
+        transaction.trans_len = 0;
 
-void timesync_task(void *args)
-{
-    xSemaphoreTake(wifi_ready, portMAX_DELAY);
-    TickType_t last_wake_time = xTaskGetTickCount();
-    while (1)
-    {
-        // Send timesync message
-        uint64_t time = esp_timer_get_time();
-        uint8_t *packet = create_timesync_packet(time);
-        espnow_data_send(host_mac_addr, packet, ROS_PKG_LEN + sizeof(serial_timestamp_t));
+        ret = ESP_FAIL;
+        if (xSemaphoreTake(spi_mutex, portMAX_DELAY) == pdTRUE) {
+            // ESP_LOGI("TIMESYNC", "Sending timesync packet.");
+            ret = spi_slave_transmit(SPI2_HOST, &transaction, portMAX_DELAY);
+            xSemaphoreGive(spi_mutex);
+            if (ret != ESP_OK) {
+                // ESP_LOGE(ESPNOW_RECV_TAG, "SPI transmission failed.");
+            }
+        }
 
         vTaskDelayUntil(&last_wake_time, 500 / portTICK_PERIOD_MS);
     }
@@ -254,7 +268,6 @@ void timesync_task(void *args)
 void
 app_main(void) {
     esp_err_t ret;
-    TaskHandle_t recv_task_handle, send_task_handle;
 
     /* Initialize NVS */
     ret = nvs_flash_init();
@@ -273,14 +286,17 @@ app_main(void) {
     ESP_LOGI(MAIN_TAG, "Initializing SPI...");
     spi_init();
 
-    /* Create mutex for SPI */
+    /* Create mutex for SPI and Wi-Fi */
     spi_mutex = xSemaphoreCreateBinary();
     xSemaphoreGive(spi_mutex);
     wifi_ready = xSemaphoreCreateBinary();
 
     /* Create tasks */
-    xTaskCreate(espnow_send_task, "espnow_send_task", 2048 * 4, NULL, 4, &send_task_handle);
-    xTaskCreate(espnow_recv_task, "espnow_recv_task", 2048 * 4, NULL, 4, &recv_task_handle);
+    TaskHandle_t timesync_task_handle, send_task_handle, recv_task_handle;
+    xTaskCreate(timesync_task, "timesync_task", 2048 * 4, NULL, 4, &timesync_task_handle);
+    // vTaskDelay(500 / portTICK_PERIOD_MS);
+    xTaskCreate(espnow_send_task, "espnow_send_task", 2048 * 4, NULL, 3, &send_task_handle);
+    xTaskCreate(espnow_recv_task, "espnow_recv_task", 2048 * 4, NULL, 3, &recv_task_handle);
 
     /* Silence logs if we are building release version */
 #ifndef DEBUG
