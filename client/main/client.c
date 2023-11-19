@@ -216,6 +216,36 @@ espnow_send_task(void* args) {
     }
 }
 
+void timesync_task(void *args)
+{
+    xSemaphoreTake(wifi_ready, portMAX_DELAY);
+    TickType_t last_wake_time = xTaskGetTickCount();
+    while (1)
+    {
+        // Send timesync message
+        uint64_t time = esp_timer_get_time();
+        uint8_t *packet = create_timesync_packet(time);
+        espnow_data_send(host_mac_addr, packet, ROS_PKG_LEN + sizeof(serial_timestamp_t));
+
+        vTaskDelayUntil(&last_wake_time, 500 / portTICK_PERIOD_MS);
+    }
+}
+
+void timesync_task(void *args)
+{
+    xSemaphoreTake(wifi_ready, portMAX_DELAY);
+    TickType_t last_wake_time = xTaskGetTickCount();
+    while (1)
+    {
+        // Send timesync message
+        uint64_t time = esp_timer_get_time();
+        uint8_t *packet = create_timesync_packet(time);
+        espnow_data_send(host_mac_addr, packet, ROS_PKG_LEN + sizeof(serial_timestamp_t));
+
+        vTaskDelayUntil(&last_wake_time, 500 / portTICK_PERIOD_MS);
+    }
+}
+
 /**
  * @brief           Main function of the program. Initializes wifi, ESPNOW, and SPI. 
  *                  Launches tasks for receiving over SPI/sending over ESPNOW and for
@@ -254,7 +284,7 @@ app_main(void) {
 
     /* Silence logs if we are building release version */
 #ifndef DEBUG
-    ESP_LOGI("MAIN", "Silencing logs.");
-    esp_log_level_set("*", ESP_LOG_NONE);
+    // ESP_LOGI("MAIN", "Silencing logs.");
+    // esp_log_level_set("*", ESP_LOG_NONE);
 #endif
 }
