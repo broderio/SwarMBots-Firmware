@@ -45,6 +45,7 @@
 #include "esp_netif.h"
 #include "esp_now.h"
 #include "esp_wifi.h"
+#include "esp_timer.h"
 #include "lcm/comms.h"
 #include "lcm/mbot_lcm_msgs_serial.h"
 #include "mbot_params.h"
@@ -88,7 +89,7 @@ bool doSerial = true;                           /**< Tracks whether the host is 
  * 
  * @param arg       Ignores arg. Parameter present for FreeRTOS compatibility.
  */
-static void
+void
 print_task(void* arg) {
     uint32_t io_num;
 
@@ -119,7 +120,7 @@ print_task(void* arg) {
  * 
  * @param args      Ignores args. Parameter present for FreeRTOS compatibility.
  */
-static void
+void
 espnow_recv_task(void* args) {
     espnow_event_recv_t evt;
     esp_err_t err;
@@ -187,7 +188,7 @@ espnow_recv_task(void* args) {
  * @param arg       Ignores arg. Parameter present for FreeRTOS compatibility.
  * @sa              pilot_mode_task()
  */
-static void
+void
 serial_mode_task(void* arg) {
     uart_config_t uart_config = {               /* Configure UART */
         .baud_rate = 921600,
@@ -315,15 +316,18 @@ pilot_mode_task(void* arg) {
 }
 
 /**
- * @brief           Task that handles switching between serial mode and pilot mode.
+ * @brief           Task that handles switching between serial mode and pilot mode and syncing with MBoard.
  * 
  * @param args      Ignores args. Parameter present for FreeRTOS compatibility.
  */
-static void
-switch_task(void* args) {
+void
+main_task(void* args) {
+    TickType_t last_wake_time;
     while (1) {
-        /* Wait for the semaphore */
-        if (xSemaphoreTake(switch_sem, portMAX_DELAY) == pdTRUE) {
+        last_wake_time = xTaskGetTickCount();
+
+        /* Wait for the semaphore, timeout so we can send timesync */
+        if (xSemaphoreTake(switch_sem, 50 / portTICK_PERIOD_MS) == pdTRUE) {
             /* Check the switch state and suspend/resume tasks accordingly */
             if (doSerial) {
                 ESP_LOGI("SWITCH", "Serial mode");
@@ -345,6 +349,22 @@ switch_task(void* args) {
                 gpio_isr_handler_add(B2_PIN, buttons_isr_handler, (void*)B2_PIN);
             }
         }
+
+        /* Create timesync message */
+        uint64_t time = esp_timer_get_time();
+        uint8_t *packet = create_timesync_packet(time);
+        size_t pkt_len = sizeof(serial_timestamp_t) + ROS_PKG_LEN;
+
+        /* Send timesync message to all peers */
+        ESP_LOGI("TIMESYNC", "Sending timesync packet to all peers");
+        for (int i = 0; i < peer_num; ++i) {
+            ESP_LOGI("TIMESYNC", "Sending to " MACSTR "", MAC2STR(peers[i].peer_addr));
+            espnow_data_send(peers[i].peer_addr, packet, pkt_len);
+        }
+        free(packet);
+
+        // Run at 2 Hz
+        vTaskDelayUntil(&last_wake_time, SYNC_PERIOD_MS / portTICK_PERIOD_MS);
     }
 }
 
@@ -377,7 +397,7 @@ app_main() {
     
     /* Create tasks */
     xTaskCreate(espnow_recv_task, "espnow_recv_task", 4096, NULL, 4, NULL);
-    xTaskCreate(switch_task, "switch_task", 4096, NULL, 4, NULL);
+    xTaskCreate(main_task, "main_task", 4096, NULL, 4, NULL);
     xTaskCreate(serial_mode_task, "serial_mode_task", 4096, NULL, 3, &serialMode);
     xTaskCreate(pilot_mode_task, "pilot_mode_task", 4096, NULL, 3, &pilotMode);
 

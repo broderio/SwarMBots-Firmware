@@ -52,7 +52,6 @@
 /* ==================================== FUNCTION PROTOTYPES ==================================== */
 
 void connect_to_host(uint8_t* host_mac_addr);
-uint8_t *create_timesync_packet(uint64_t time);
 
 /* ==================================== FUNCTION DEFINITIONS ==================================== */
 
@@ -110,23 +109,6 @@ connect_to_host(uint8_t* host_mac_addr) {
         esp_now_set_peer_rate_config(evt.mac_addr, &rate_config);
         ESP_LOGI(CONNECT_TO_HOST_TAG, "Found host (MAC: " MACSTR ")", MAC2STR(evt.mac_addr));
     }
-}
-
-uint8_t *create_timesync_packet(uint64_t time) {
-    serial_timestamp_t msg = {
-        .utime = time
-    };
-
-    // Initialize variables for packet
-    size_t msg_len = sizeof(msg);
-    uint8_t *msg_serialized = (uint8_t *)(malloc(msg_len));
-    uint8_t *packet = (uint8_t *)(malloc(msg_len + ROS_PKG_LEN));
-
-    // Serialize message and create packet
-    timestamp_t_serialize(&msg, msg_serialized);
-    encode_msg(msg_serialized, msg_len, MBOT_TIMESYNC, packet, msg_len + ROS_PKG_LEN);
-    free(msg_serialized);
-    return packet;
 }
 
 #endif

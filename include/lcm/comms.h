@@ -13,6 +13,8 @@
 #define VERSION_FLAG   0xfe //version flag compatible with ROS2
 #define SENSORS_TOPIC  101  //default message topic when a message is sent from the pico to the rpi
 #define COMMANDS_TOPIC 102  //default message topic when a message is sent from the rpi to the pico
+#define SYNC_HZ        2    //frequency of the sync signal in Hz
+#define SYNC_PERIOD_MS (1000 / SYNC_HZ)
 
 #define PICO_IN_MSG    sizeof(data_pico) //equal to the size of the data_pico struct
 #define RPI_IN_MSG     sizeof(data_rpi)  //equal to the size of the data_rpi struct

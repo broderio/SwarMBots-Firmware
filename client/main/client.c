@@ -76,9 +76,13 @@
 
 QueueHandle_t espnow_send_queue;                /**< Queue of send events populated in \c espnow_send_cb() (\c wifi.h )*/
 QueueHandle_t espnow_recv_queue;                /**< Queue of send events populated in \c espnow_recv_cb() (\c wifi.h )*/
-
+SemaphoreHandle_t packet_count_mutex;           /**< Mutex for mediating packet count - prevents simultaneous reads and writes*/
+SemaphoreHandle_t host_active_mutex;            /**< Mutex for mediating host active flag - prevents simultaneous reads and writes*/
 SemaphoreHandle_t spi_mutex;                    /**< Mutex for mediating SPI - prevents simultaneous sends and receives*/
-SemaphoreHandle_t wifi_ready;                   /**< Semaphore that delays \c espnow_send_task() until host found*/
+
+uint32_t packet_counter = 0;                    /**< Counter for number of packets received*/
+bool host_active = false;                       /**< Flag that indicates whether host has been found*/
+
 
 uint8_t host_mac_addr[MAC_ADDR_LEN];            /**< Global storage of host MAC address*/
 
@@ -96,7 +100,7 @@ uint8_t host_mac_addr[MAC_ADDR_LEN];            /**< Global storage of host MAC 
  * @param args      Ignores args. Parameter present for FreeRTOS compatibility.
  * @sa              espnow_send_task()
  */
-static void
+void
 espnow_recv_task(void* args) {
     espnow_event_recv_t evt;
     esp_err_t err;
@@ -112,7 +116,7 @@ espnow_recv_task(void* args) {
         ESP_LOGI(ESPNOW_RECV_TAG, "Could not get mac address, error code %d", err);
     }
 
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    vTaskDelay(200 / portTICK_PERIOD_MS);
 
     /* Print client mac address */
     ESP_LOGI(ESPNOW_RECV_TAG, "Client MAC: " MACSTR, MAC2STR(mac));
@@ -121,10 +125,16 @@ espnow_recv_task(void* args) {
     ESP_LOGI(ESPNOW_RECV_TAG, "Waiting for host...");
     connect_to_host(host_mac_addr);
     ESP_LOGI(ESPNOW_RECV_TAG, "Connected to host.");
-    xSemaphoreGive(wifi_ready);
 
     /* Begin receiving messages and sending them over SPI */
     while (xQueueReceive(espnow_recv_queue, &evt, portMAX_DELAY) == pdTRUE) {
+        /* Increments packet count */
+        if (xSemaphoreTake(packet_count_mutex, portMAX_DELAY) == pdTRUE) {
+            packet_counter++;   
+            ESP_LOGI(ESPNOW_RECV_TAG, "Received packet %lu", packet_counter);
+            xSemaphoreGive(packet_count_mutex);
+        }
+
         /* Parse incoming packet */
         ret = espnow_data_parse(evt.data, evt.data_len, msg, &data_len);
         free(evt.data);
@@ -151,6 +161,7 @@ espnow_recv_task(void* args) {
             }
         }
         ESP_LOGI(ESPNOW_RECV_TAG, "Sent %zu bytes over SPI", transaction.trans_len / 8);
+
     }
 }
 
@@ -161,9 +172,9 @@ espnow_recv_task(void* args) {
  *                  and sends it to the host via ESPNOW. This task should run 25 times per second.
  * 
  * @param args      Ignores args. Parameter present for FreeRTOS compatibility.
- * @sa              espnow_recv_task()
+ * @sa              espnow_send_task()
  */
-static void
+void
 espnow_send_task(void* args) {
     esp_err_t ret;
     spi_slave_transaction_t transaction;
@@ -172,10 +183,16 @@ espnow_send_task(void* args) {
     WORD_ALIGNED_ATTR uint8_t recvbuf[84];
     uint8_t full_pkt[full_pkt_len];
 
-    xSemaphoreTake(wifi_ready, portMAX_DELAY);
     while (1) {
-        size_t pkt_idx = 0;
+        /* Check if host is active */
+        // ESP_LOGI(ESPNOW_SEND_TAG, "Host active: %d", host_active);
+        if (!host_active) {
+            vTaskDelay(10 / portTICK_PERIOD_MS);
+            continue;
+        }
 
+        /* Assemble MBoard data packet */
+        size_t pkt_idx = 0;
         for (size_t i = 0; i < 6; ++i) {
             size_t msg_len;
             uint8_t* msg_start;
@@ -217,46 +234,30 @@ espnow_send_task(void* args) {
 }
 
 /**
- * @brief           Task that handles timesyncing with the MBoard
+ * @brief           Task that handles checking if host is active
  * 
- * @details         Sends a timesync message to the MBoard every 500ms. 
- *                  This task should run 2 times per second. Minimum necessary is 1 time per second.
+ * @details         Checks if the host has sent a packet in the last second. If not, sets the
+ *                  \c host_active flag to false.
  * 
  * @param args      Ignores args. Parameter present for FreeRTOS compatibility.
- * @sa              timesync_task()
+ * @sa              check_packet_rate_task()
  */
-void timesync_task(void *args)
-{
-    esp_err_t ret;
-    spi_slave_transaction_t transaction;
-    TickType_t last_wake_time;
-    ESP_LOGI("TIMESYNC", "Starting timesync task.");
-    while (1)
-    {
-        last_wake_time = xTaskGetTickCount();
+void 
+check_packet_rate_task(void* args) {
+    while (true) {
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
 
-        /* Create timesync message */
-        uint64_t time = esp_timer_get_time();
-        uint8_t *packet = create_timesync_packet(time);
-        size_t pkt_len = sizeof(serial_timestamp_t) + ROS_PKG_LEN;
-
-         /* Populate SPI packet */
-        transaction.length = pkt_len * 8;
-        transaction.tx_buffer = packet;
-        transaction.rx_buffer = NULL;
-        transaction.trans_len = 0;
-
-        ret = ESP_FAIL;
-        if (xSemaphoreTake(spi_mutex, portMAX_DELAY) == pdTRUE) {
-            // ESP_LOGI("TIMESYNC", "Sending timesync packet.");
-            ret = spi_slave_transmit(SPI2_HOST, &transaction, portMAX_DELAY);
-            xSemaphoreGive(spi_mutex);
-            if (ret != ESP_OK) {
-                // ESP_LOGE(ESPNOW_RECV_TAG, "SPI transmission failed.");
-            }
+        /* Check to see if we have received the correct number of packets per second */
+        xSemaphoreTake(packet_count_mutex, portMAX_DELAY);
+        ESP_LOGI("CHECK_RATE", "Received %lu packets in the last second.", packet_counter);
+        host_active = true;
+        if (packet_counter < SYNC_HZ) {
+            host_active = false;
         }
+        ESP_LOGI("CHECK_RATE", "Host active: %d", host_active);
+        packet_counter = 0;
+        xSemaphoreGive(packet_count_mutex);
 
-        vTaskDelayUntil(&last_wake_time, 500 / portTICK_PERIOD_MS);
     }
 }
 
@@ -286,17 +287,17 @@ app_main(void) {
     ESP_LOGI(MAIN_TAG, "Initializing SPI...");
     spi_init();
 
-    /* Create mutex for SPI and Wi-Fi */
+    /* Create mutex for SPI */
     spi_mutex = xSemaphoreCreateBinary();
+    packet_count_mutex = xSemaphoreCreateBinary();
     xSemaphoreGive(spi_mutex);
-    wifi_ready = xSemaphoreCreateBinary();
+    xSemaphoreGive(packet_count_mutex);
 
     /* Create tasks */
-    TaskHandle_t timesync_task_handle, send_task_handle, recv_task_handle;
-    xTaskCreate(timesync_task, "timesync_task", 2048 * 4, NULL, 4, &timesync_task_handle);
-    // vTaskDelay(500 / portTICK_PERIOD_MS);
+    TaskHandle_t check_packet_rate_task_handle, send_task_handle, recv_task_handle;
     xTaskCreate(espnow_send_task, "espnow_send_task", 2048 * 4, NULL, 3, &send_task_handle);
     xTaskCreate(espnow_recv_task, "espnow_recv_task", 2048 * 4, NULL, 3, &recv_task_handle);
+    xTaskCreate(check_packet_rate_task, "check_packet_rate_task", 2048 * 4, NULL, 3, &check_packet_rate_task_handle);
 
     /* Silence logs if we are building release version */
 #ifndef DEBUG
