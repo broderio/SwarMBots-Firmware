@@ -77,8 +77,6 @@
 QueueHandle_t espnow_send_queue;                /**< Queue of send events populated in \c espnow_send_cb() (\c wifi.h )*/
 QueueHandle_t espnow_recv_queue;                /**< Queue of send events populated in \c espnow_recv_cb() (\c wifi.h )*/
 SemaphoreHandle_t packet_count_mutex;           /**< Mutex for mediating packet count - prevents simultaneous reads and writes*/
-SemaphoreHandle_t host_active_mutex;            /**< Mutex for mediating host active flag - prevents simultaneous reads and writes*/
-SemaphoreHandle_t spi_mutex;                    /**< Mutex for mediating SPI - prevents simultaneous sends and receives*/
 
 uint32_t packet_counter = 0;                    /**< Counter for number of packets received*/
 bool host_active = false;                       /**< Flag that indicates whether host has been found*/
@@ -131,7 +129,7 @@ espnow_recv_task(void* args) {
         /* Increments packet count */
         if (xSemaphoreTake(packet_count_mutex, portMAX_DELAY) == pdTRUE) {
             packet_counter++;   
-            ESP_LOGI(ESPNOW_RECV_TAG, "Received packet %lu", packet_counter);
+            // ESP_LOGI(ESPNOW_RECV_TAG, "Received packet %lu", packet_counter);
             xSemaphoreGive(packet_count_mutex);
         }
 
@@ -151,15 +149,8 @@ espnow_recv_task(void* args) {
         transaction.tx_buffer = msg;
         transaction.rx_buffer = NULL;
         transaction.trans_len = 0;
+        spi_transaction(&transaction);
 
-        ret = ESP_FAIL;
-        if (xSemaphoreTake(spi_mutex, portMAX_DELAY) == pdTRUE) {
-            ret = spi_slave_transmit(SPI2_HOST, &transaction, portMAX_DELAY);
-            xSemaphoreGive(spi_mutex);
-            if (ret != ESP_OK) {
-                ESP_LOGE(ESPNOW_RECV_TAG, "SPI transmission failed.");
-            }
-        }
         ESP_LOGI(ESPNOW_RECV_TAG, "Sent %zu bytes over SPI", transaction.trans_len / 8);
 
     }
@@ -201,21 +192,20 @@ espnow_send_task(void* args) {
             transaction.tx_buffer = NULL;
             transaction.rx_buffer = recvbuf;
             transaction.trans_len = 0;
-
-            ret = ESP_FAIL;
-            if (xSemaphoreTake(spi_mutex, portMAX_DELAY) == pdTRUE) {
-                ret = spi_slave_transmit(SPI2_HOST, &transaction, portMAX_DELAY);
-                xSemaphoreGive(spi_mutex);
-                if (ret != ESP_OK) {
-                    ESP_LOGE(ESPNOW_SEND_TAG, "SPI transmission failed.");
-                }
-            }
+            spi_transaction(&transaction);
 
             /* Copy data into packet (removes ROS header and footer) */
             msg_start = transaction.rx_buffer + 7;
             msg_len = transaction.trans_len / 8 - 8;
 
-            // ESP_LOGI(ESPNOW_SEND_TAG, "Received SPI packet of len: %u.", msg_len);
+            /* Check to see that first message is an encoder message */
+            if (msg_len != 48 && i == 0) {
+                ESP_LOGE(ESPNOW_SEND_TAG, "SPI out of sync!");
+                i--;
+                continue;
+            }
+
+            ESP_LOGI(ESPNOW_SEND_TAG, "Received SPI packet of len: %u.", msg_len);
 
             memcpy(full_pkt + pkt_idx, msg_start, msg_len);
             pkt_idx += msg_len;
@@ -288,9 +278,7 @@ app_main(void) {
     spi_init();
 
     /* Create mutex for SPI */
-    spi_mutex = xSemaphoreCreateBinary();
     packet_count_mutex = xSemaphoreCreateBinary();
-    xSemaphoreGive(spi_mutex);
     xSemaphoreGive(packet_count_mutex);
 
     /* Create tasks */

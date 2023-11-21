@@ -39,6 +39,8 @@
 
 /* ==================================== GLOBAL VARIABLES ==================================== */
 
+SemaphoreHandle_t spi_mutex;             /**< Mutex for SPI communication */
+
 /* ==================================== DATA STRUCTS ==================================== */
 
 /* ==================================== FUNCTION PROTOTYPES ==================================== */
@@ -47,6 +49,8 @@ void spi_post_setup_cb(spi_slave_transaction_t* trans);
 void spi_post_trans_cb(spi_slave_transaction_t* trans);
 
 int spi_init(void);
+void spi_transaction(spi_slave_transaction_t *trans);
+void sync_spi(void);
 
 /* ==================================== FUNCTION DEFINITIONS ==================================== */
 
@@ -144,7 +148,28 @@ spi_init(void) {
         printf("Error configuring GPIO: %d\n", ret);
         return ret;
     }
+
+    /* Initialize SPI mutex */
+    spi_mutex = xSemaphoreCreateMutex();
+    if (spi_mutex == NULL) {
+        printf("Error creating SPI mutex.\n");
+        return ESP_FAIL;
+    }
+    xSemaphoreGive(spi_mutex);
+
     // printf("Minimum free heap size: %lu bytes\n", esp_get_minimum_free_heap_size());
     return ret;
 }
+
+void spi_transaction(spi_slave_transaction_t *trans) {
+    esp_err_t ret = ESP_FAIL;
+    if (xSemaphoreTake(spi_mutex, portMAX_DELAY) == pdTRUE) {
+        ret = spi_slave_transmit(SPI2_HOST, trans, portMAX_DELAY);
+        xSemaphoreGive(spi_mutex);
+        if (ret != ESP_OK) {
+            ESP_LOGE("SPI_TRANS", "SPI transmission failed.");
+        }
+    }
+}
+
 #endif
