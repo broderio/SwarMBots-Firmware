@@ -172,4 +172,8 @@ void spi_transaction(spi_slave_transaction_t *trans) {
     }
 }
 
+void sync_spi(void) {
+    
+}
+
 #endif

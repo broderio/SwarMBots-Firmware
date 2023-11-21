@@ -76,11 +76,8 @@
 
 QueueHandle_t espnow_send_queue;                /**< Queue of send events populated in \c espnow_send_cb() (\c wifi.h )*/
 QueueHandle_t espnow_recv_queue;                /**< Queue of send events populated in \c espnow_recv_cb() (\c wifi.h )*/
-SemaphoreHandle_t packet_count_mutex;           /**< Mutex for mediating packet count - prevents simultaneous reads and writes*/
 
-uint32_t packet_counter = 0;                    /**< Counter for number of packets received*/
 bool host_active = false;                       /**< Flag that indicates whether host has been found*/
-
 
 uint8_t host_mac_addr[MAC_ADDR_LEN];            /**< Global storage of host MAC address*/
 
@@ -125,12 +122,16 @@ espnow_recv_task(void* args) {
     ESP_LOGI(ESPNOW_RECV_TAG, "Connected to host.");
 
     /* Begin receiving messages and sending them over SPI */
-    while (xQueueReceive(espnow_recv_queue, &evt, portMAX_DELAY) == pdTRUE) {
-        /* Increments packet count */
-        if (xSemaphoreTake(packet_count_mutex, portMAX_DELAY) == pdTRUE) {
-            packet_counter++;   
-            // ESP_LOGI(ESPNOW_RECV_TAG, "Received packet %lu", packet_counter);
-            xSemaphoreGive(packet_count_mutex);
+    while (1) {
+
+        /* Wait for message, if we aren't receiving at SYNC_HZ then set host_active flag false */
+        if (xQueueReceive(espnow_recv_queue, &evt, SYNC_PERIOD_MS / portTICK_PERIOD_MS) == pdTRUE) {
+            host_active = true;
+        }
+        else {
+            ESP_LOGE(ESPNOW_RECV_TAG, "Failed to receive message");
+            host_active = false;
+            continue;
         }
 
         /* Parse incoming packet */
@@ -167,7 +168,6 @@ espnow_recv_task(void* args) {
  */
 void
 espnow_send_task(void* args) {
-    esp_err_t ret;
     spi_slave_transaction_t transaction;
 
     size_t full_pkt_len = sizeof(packets_wrapper_t) + 1;
@@ -224,34 +224,6 @@ espnow_send_task(void* args) {
 }
 
 /**
- * @brief           Task that handles checking if host is active
- * 
- * @details         Checks if the host has sent a packet in the last second. If not, sets the
- *                  \c host_active flag to false.
- * 
- * @param args      Ignores args. Parameter present for FreeRTOS compatibility.
- * @sa              check_packet_rate_task()
- */
-void 
-check_packet_rate_task(void* args) {
-    while (true) {
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-
-        /* Check to see if we have received the correct number of packets per second */
-        xSemaphoreTake(packet_count_mutex, portMAX_DELAY);
-        ESP_LOGI("CHECK_RATE", "Received %lu packets in the last second.", packet_counter);
-        host_active = true;
-        if (packet_counter < SYNC_HZ) {
-            host_active = false;
-        }
-        ESP_LOGI("CHECK_RATE", "Host active: %d", host_active);
-        packet_counter = 0;
-        xSemaphoreGive(packet_count_mutex);
-
-    }
-}
-
-/**
  * @brief           Main function of the program. Initializes wifi, ESPNOW, and SPI. 
  *                  Launches tasks for receiving over SPI/sending over ESPNOW and for
  *                  receiving over ESPNOW/sending over SPI.
@@ -277,15 +249,10 @@ app_main(void) {
     ESP_LOGI(MAIN_TAG, "Initializing SPI...");
     spi_init();
 
-    /* Create mutex for SPI */
-    packet_count_mutex = xSemaphoreCreateBinary();
-    xSemaphoreGive(packet_count_mutex);
-
     /* Create tasks */
-    TaskHandle_t check_packet_rate_task_handle, send_task_handle, recv_task_handle;
+    TaskHandle_t send_task_handle, recv_task_handle;
     xTaskCreate(espnow_send_task, "espnow_send_task", 2048 * 4, NULL, 3, &send_task_handle);
     xTaskCreate(espnow_recv_task, "espnow_recv_task", 2048 * 4, NULL, 3, &recv_task_handle);
-    xTaskCreate(check_packet_rate_task, "check_packet_rate_task", 2048 * 4, NULL, 3, &check_packet_rate_task_handle);
 
     /* Silence logs if we are building release version */
 #ifndef DEBUG
