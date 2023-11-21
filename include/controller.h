@@ -49,7 +49,7 @@
 #include "wifi.h"
 
 /* ==================================== #DEFINED CONSTS ==================================== */
-#define MAX_VEL 1.5 /**< Maximum velocity of the MBot in m/s */
+#define MAX_VEL 0.5 /**< Maximum velocity of the MBot in m/s */
 
 /* ==================================== GLOBAL VARIABLES ==================================== */
 

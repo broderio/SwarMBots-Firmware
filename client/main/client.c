@@ -205,7 +205,7 @@ espnow_send_task(void* args) {
                 continue;
             }
 
-            ESP_LOGI(ESPNOW_SEND_TAG, "Received SPI packet of len: %u.", msg_len);
+            // ESP_LOGI(ESPNOW_SEND_TAG, "Received SPI packet of len: %u.", msg_len);
 
             memcpy(full_pkt + pkt_idx, msg_start, msg_len);
             pkt_idx += msg_len;
