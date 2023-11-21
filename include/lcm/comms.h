@@ -14,7 +14,9 @@
 #define SENSORS_TOPIC  101  //default message topic when a message is sent from the pico to the rpi
 #define COMMANDS_TOPIC 102  //default message topic when a message is sent from the rpi to the pico
 #define SYNC_HZ        2    //frequency of the sync signal in Hz
-#define SYNC_PERIOD_MS (1000 / SYNC_HZ)
+#define SYNC_PERIOD_MS (1000 / SYNC_HZ) //period of the sync signal in ms
+#define MBOT_OUTPUT_HZ 25   //frequency of the mbot output in Hz
+#define MBOT_OUTPUT_PERIOD_MS (1000 / MBOT_OUTPUT_HZ) //period of the mbot output in ms
 
 #define PICO_IN_MSG    sizeof(data_pico) //equal to the size of the data_pico struct
 #define RPI_IN_MSG     sizeof(data_rpi)  //equal to the size of the data_rpi struct

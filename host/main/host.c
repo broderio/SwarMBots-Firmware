@@ -69,14 +69,11 @@ QueueHandle_t espnow_recv_queue;                /**< Queue of send events popula
 
 esp_now_peer_info_t peers[8];                   /**< Array of peer info (to avoid using built-in ESPNOW functions) */
 
-
 SemaphoreHandle_t switch_sem;                   /**< Semaphore used to wait for mode switch */
 TaskHandle_t serialMode;                        /**< Handle for task \c serial_mode_task() */
 TaskHandle_t pilotMode;                         /**< Handle for task \c pilot_mode_task() */
 
 int32_t peer_num = 0;                           /**< The number of known peers */
-int joystick_x;                             /**< X value read from the joystick */
-int joystick_y;                             /**< Y value read from the joystick */
 
 bool doSerial = true;                           /**< Tracks whether the host is in serial or pilot mode */
 
@@ -261,10 +258,6 @@ pilot_mode_task(void* arg) {
     espnow_send_param_t send_param;
     TickType_t xLastWakeTime;
 
-    int vy_adc, vx_adc;
-
-    float max;
-
     /* Suspend immediately if in serial mode or if we have no clients paired */
     if (doSerial) {
         vTaskSuspend(pilotMode);
@@ -275,26 +268,12 @@ pilot_mode_task(void* arg) {
     peer = peers[curr_bot];
     memset(&send_param, 0, sizeof(espnow_send_param_t));
     send_param.len = 0;
-
-    max = 1.5;
     while (1) {
-        float vx, wz;
-
         xLastWakeTime = xTaskGetTickCount();
 
-        adc_oneshot_get_calibrated_result(adc1_handle, JS_Y_cali, ADC_CHANNEL_3, &vy_adc);
-        adc_oneshot_get_calibrated_result(adc1_handle, JS_X_cali, ADC_CHANNEL_4, &vx_adc);
-
-        // ESP_LOGI(PILOT_TAG, "Vertical Voltage: %d", vy);
-        // ESP_LOGI(PILOT_TAG, "Horizontal Voltage: %d", vx);
-
-        /* max out at 5 m/s */
-        vx = (abs(vy_adc - joystick_y) > 50) ? vy_adc * (2.0 * max) / 946.0 - max : 0;
-        wz = (abs(vx_adc - joystick_x) > 50) ? -vx_adc * (6.0 * max) / 946.0 + 3 * max : 0;
-
-        //ESP_LOGI(PILOT_TAG, "Forward Velocity: %f m/s", vx);
-        //ESP_LOGI(PILOT_TAG, "Turn Velocity: %f m/s", wz);
-
+        float vx, wz;
+        get_vel_from_joystick(&vx, &wz);
+        
         if (peer_num > 0) {
             uint16_t pkt_len;
             uint8_t* packet;
@@ -302,7 +281,7 @@ pilot_mode_task(void* arg) {
             peer = peers[curr_bot];
             ESP_LOGI(PILOT_TAG, "Sending to " MACSTR "", MAC2STR(peer.peer_addr));
             memcpy(send_param.dest_mac, peer.peer_addr, MAC_ADDR_LEN);
-            packet = command_serializer(vx, 0, wz);
+            packet = command_serializer(vx, 0.0, wz);
             pkt_len = sizeof(serial_twist2D_t) + ROS_PKG_LEN;
             espnow_data_send(peer.peer_addr, packet, pkt_len);
             free(packet);
@@ -390,7 +369,6 @@ app_main() {
 
     /* Init controller */
     controller_init();
-    calibrate_joystick(&joystick_x, &joystick_y, 1000);
 
     /* Set the mode given the switch state defined in controller.c */
     doSerial = !(bool)gpio_get_level(SW_PIN);
