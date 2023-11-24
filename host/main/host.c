@@ -45,6 +45,7 @@
 #include "esp_netif.h"
 #include "esp_now.h"
 #include "esp_wifi.h"
+#include "esp_timer.h"
 #include "lcm/comms.h"
 #include "lcm/mbot_lcm_msgs_serial.h"
 #include "mbot_params.h"
@@ -68,14 +69,11 @@ QueueHandle_t espnow_recv_queue;                /**< Queue of send events popula
 
 esp_now_peer_info_t peers[8];                   /**< Array of peer info (to avoid using built-in ESPNOW functions) */
 
-
 SemaphoreHandle_t switch_sem;                   /**< Semaphore used to wait for mode switch */
 TaskHandle_t serialMode;                        /**< Handle for task \c serial_mode_task() */
 TaskHandle_t pilotMode;                         /**< Handle for task \c pilot_mode_task() */
 
 int32_t peer_num = 0;                           /**< The number of known peers */
-int joystick_x;                             /**< X value read from the joystick */
-int joystick_y;                             /**< Y value read from the joystick */
 
 bool doSerial = true;                           /**< Tracks whether the host is in serial or pilot mode */
 
@@ -88,7 +86,7 @@ bool doSerial = true;                           /**< Tracks whether the host is 
  * 
  * @param arg       Ignores arg. Parameter present for FreeRTOS compatibility.
  */
-static void
+void
 print_task(void* arg) {
     uint32_t io_num;
 
@@ -119,7 +117,7 @@ print_task(void* arg) {
  * 
  * @param args      Ignores args. Parameter present for FreeRTOS compatibility.
  */
-static void
+void
 espnow_recv_task(void* args) {
     espnow_event_recv_t evt;
     esp_err_t err;
@@ -187,7 +185,7 @@ espnow_recv_task(void* args) {
  * @param arg       Ignores arg. Parameter present for FreeRTOS compatibility.
  * @sa              pilot_mode_task()
  */
-static void
+void
 serial_mode_task(void* arg) {
     uart_config_t uart_config = {               /* Configure UART */
         .baud_rate = 921600,
@@ -260,10 +258,6 @@ pilot_mode_task(void* arg) {
     espnow_send_param_t send_param;
     TickType_t xLastWakeTime;
 
-    int vy_adc, vx_adc;
-
-    float max;
-
     /* Suspend immediately if in serial mode or if we have no clients paired */
     if (doSerial) {
         vTaskSuspend(pilotMode);
@@ -274,26 +268,12 @@ pilot_mode_task(void* arg) {
     peer = peers[curr_bot];
     memset(&send_param, 0, sizeof(espnow_send_param_t));
     send_param.len = 0;
-
-    max = 1.5;
     while (1) {
-        float vx, wz;
-
         xLastWakeTime = xTaskGetTickCount();
 
-        adc_oneshot_get_calibrated_result(adc1_handle, JS_Y_cali, ADC_CHANNEL_3, &vy_adc);
-        adc_oneshot_get_calibrated_result(adc1_handle, JS_X_cali, ADC_CHANNEL_4, &vx_adc);
-
-        // ESP_LOGI(PILOT_TAG, "Vertical Voltage: %d", vy);
-        // ESP_LOGI(PILOT_TAG, "Horizontal Voltage: %d", vx);
-
-        /* max out at 5 m/s */
-        vx = (abs(vy_adc - joystick_y) > 50) ? vy_adc * (2.0 * max) / 946.0 - max : 0;
-        wz = (abs(vx_adc - joystick_x) > 50) ? -vx_adc * (6.0 * max) / 946.0 + 3 * max : 0;
-
-        //ESP_LOGI(PILOT_TAG, "Forward Velocity: %f m/s", vx);
-        //ESP_LOGI(PILOT_TAG, "Turn Velocity: %f m/s", wz);
-
+        float vx, wz;
+        get_vel_from_joystick(&vx, &wz);
+        
         if (peer_num > 0) {
             uint16_t pkt_len;
             uint8_t* packet;
@@ -301,7 +281,7 @@ pilot_mode_task(void* arg) {
             peer = peers[curr_bot];
             ESP_LOGI(PILOT_TAG, "Sending to " MACSTR "", MAC2STR(peer.peer_addr));
             memcpy(send_param.dest_mac, peer.peer_addr, MAC_ADDR_LEN);
-            packet = command_serializer(vx, 0, wz);
+            packet = command_serializer(vx, 0.0, wz);
             pkt_len = sizeof(serial_twist2D_t) + ROS_PKG_LEN;
             espnow_data_send(peer.peer_addr, packet, pkt_len);
             free(packet);
@@ -315,15 +295,18 @@ pilot_mode_task(void* arg) {
 }
 
 /**
- * @brief           Task that handles switching between serial mode and pilot mode.
+ * @brief           Task that handles switching between serial mode and pilot mode and syncing with MBoard.
  * 
  * @param args      Ignores args. Parameter present for FreeRTOS compatibility.
  */
-static void
-switch_task(void* args) {
+void
+main_task(void* args) {
+    TickType_t last_wake_time;
     while (1) {
-        /* Wait for the semaphore */
-        if (xSemaphoreTake(switch_sem, portMAX_DELAY) == pdTRUE) {
+        last_wake_time = xTaskGetTickCount();
+
+        /* Wait for the semaphore, timeout so we can send timesync */
+        if (xSemaphoreTake(switch_sem, 50 / portTICK_PERIOD_MS) == pdTRUE) {
             /* Check the switch state and suspend/resume tasks accordingly */
             if (doSerial) {
                 ESP_LOGI("SWITCH", "Serial mode");
@@ -345,6 +328,22 @@ switch_task(void* args) {
                 gpio_isr_handler_add(B2_PIN, buttons_isr_handler, (void*)B2_PIN);
             }
         }
+
+        /* Create timesync message */
+        uint64_t time = esp_timer_get_time();
+        uint8_t *packet = create_timesync_packet(time);
+        size_t pkt_len = sizeof(serial_timestamp_t) + ROS_PKG_LEN;
+
+        /* Send timesync message to all peers */
+        ESP_LOGI("TIMESYNC", "Sending timesync packet to all peers");
+        for (int i = 0; i < peer_num; ++i) {
+            ESP_LOGI("TIMESYNC", "Sending to " MACSTR "", MAC2STR(peers[i].peer_addr));
+            espnow_data_send(peers[i].peer_addr, packet, pkt_len);
+        }
+        free(packet);
+
+        // Run at 2 Hz
+        vTaskDelayUntil(&last_wake_time, SYNC_PERIOD_MS / portTICK_PERIOD_MS);
     }
 }
 
@@ -370,14 +369,13 @@ app_main() {
 
     /* Init controller */
     controller_init();
-    calibrate_joystick(&joystick_x, &joystick_y, 1000);
 
     /* Set the mode given the switch state defined in controller.c */
     doSerial = !(bool)gpio_get_level(SW_PIN);
     
     /* Create tasks */
     xTaskCreate(espnow_recv_task, "espnow_recv_task", 4096, NULL, 4, NULL);
-    xTaskCreate(switch_task, "switch_task", 4096, NULL, 4, NULL);
+    xTaskCreate(main_task, "main_task", 4096, NULL, 4, NULL);
     xTaskCreate(serial_mode_task, "serial_mode_task", 4096, NULL, 3, &serialMode);
     xTaskCreate(pilot_mode_task, "pilot_mode_task", 4096, NULL, 3, &pilotMode);
 

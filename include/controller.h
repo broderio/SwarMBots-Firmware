@@ -49,6 +49,7 @@
 #include "wifi.h"
 
 /* ==================================== #DEFINED CONSTS ==================================== */
+#define MAX_VEL 0.5 /**< Maximum velocity of the MBot in m/s */
 
 /* ==================================== GLOBAL VARIABLES ==================================== */
 
@@ -61,8 +62,10 @@ static uint32_t last_switch = 0; /**< Stores the time of the last switch toggle 
 static QueueHandle_t gpio_evt_queue = NULL; /**< Queue for GPIO level change events*/
 
 adc_oneshot_unit_handle_t adc1_handle; /**< Handle for referencing the joystick adc */
-static adc_cali_handle_t JS_Y_cali;    /**< Handle for storing joystick Y calibration data */
-static adc_cali_handle_t JS_X_cali;    /**< Handle for storing joystick X calibration data */
+adc_cali_handle_t JS_Y_cali;    /**< Handle for storing joystick Y calibration data */
+adc_cali_handle_t JS_X_cali;    /**< Handle for storing joystick X calibration data */
+int joystick_y = 0;             /**< Stores the joystick Y rest value */
+int joystick_x = 0;             /**< Stores the joystick X rest value */
 
 extern bool doSerial;         /**< Tracks whether the host is in serial or pilot mode */
 extern SemaphoreHandle_t switch_sem; /**< Semaphore used to wait for mode switch */
@@ -74,15 +77,33 @@ extern TaskHandle_t pilotMode;  /**< Handle for host's pilot mode task */
 
 /* ==================================== FUNCTION PROTOTYPES ==================================== */
 
+void get_vel_from_joystick(float* vx, float* wz);
 uint8_t* command_serializer(float vx, float vy, float wz);
 
 static void buttons_isr_handler(void* arg);
 static void switch_isr_handler(void* arg);
 
 void controller_init();
-void calibrate_joystick(int* x, int* y, size_t n);
+void calibrate_joystick(void);
 
 /* ==================================== FUNCTION DEFINITIONS ==================================== */
+
+void get_vel_from_joystick(float* vx, float* wz) {
+    int vy_adc, vx_adc;
+    adc_oneshot_get_calibrated_result(adc1_handle, JS_Y_cali, ADC_CHANNEL_3, &vy_adc);
+    adc_oneshot_get_calibrated_result(adc1_handle, JS_X_cali, ADC_CHANNEL_4, &vx_adc);
+
+    // ESP_LOGI(PILOT_TAG, "Vertical Voltage: %d", vy_adc);
+    // ESP_LOGI(PILOT_TAG, "Horizontal Voltage: %d", vx_adc);
+
+    /* max out at 1 m/s */
+    *vx = (abs(vy_adc - joystick_y) > 50) ? (float)vy_adc * (2.0 * MAX_VEL) / 946.0 - MAX_VEL : 0;
+    *wz = (abs(vx_adc - joystick_x) > 50) ? -(float)vx_adc * (6.0 * MAX_VEL) / 946.0 + 3 * MAX_VEL : 0;
+
+    //ESP_LOGI(PILOT_TAG, "Forward Velocity: %f m/s", *vx);
+    //ESP_LOGI(PILOT_TAG, "Turn Velocity: %f m/s", *wz);
+
+}
 
 /**
  * @brief           Turns data about horizontal velocities and rotation into a valid ROS Twist2D packet
@@ -198,6 +219,7 @@ controller_init() {
     adc_cali_create_scheme_curve_fitting(&cali_config, &JS_Y_cali);
     cali_config.chan = ADC_CHANNEL_4;
     adc_cali_create_scheme_curve_fitting(&cali_config, &JS_X_cali);
+    calibrate_joystick();
 
     /* Configure the GPIOs */
     gpio_config(&b_config);
@@ -205,7 +227,6 @@ controller_init() {
 
     /* Install gpio isr service */
     gpio_install_isr_service(0);
-
     
     /* Create a queue to handle gpio event from isr */
     gpio_evt_queue = xQueueCreate(10, sizeof(uint32_t));
@@ -227,17 +248,16 @@ controller_init() {
  * @param n         number of samples to take
  */
 void
-calibrate_joystick(int* x, int* y, size_t n) {
-    int adc_val, x_tmp = 0, y_tmp = 0;
-
+calibrate_joystick(void) {
+    int adc_val, x_tmp = 0, y_tmp = 0, n = 1000;
     for (size_t i = 0; i < n; ++i) {
         adc_oneshot_get_calibrated_result(adc1_handle, JS_X_cali, ADC_CHANNEL_4, &adc_val);
         x_tmp += adc_val;
         adc_oneshot_get_calibrated_result(adc1_handle, JS_Y_cali, ADC_CHANNEL_3, &adc_val);
         y_tmp += adc_val;
     }
-    *x = x_tmp / n;
-    *y = y_tmp / n;
+    joystick_x = x_tmp / n;
+    joystick_y = y_tmp / n;
 }
 
 #endif
