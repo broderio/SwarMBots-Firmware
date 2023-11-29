@@ -317,6 +317,7 @@ main_task(void* args) {
                 /* Remove ISR for buttons */
                 gpio_isr_handler_remove(B1_PIN);
                 gpio_isr_handler_remove(B2_PIN);
+                // gpio_isr_handler_remove(B3_PIN);
             } else {
                 ESP_LOGI("SWITCH", "Pilot mode");
 
@@ -326,6 +327,7 @@ main_task(void* args) {
                 /* Add ISR for buttons */
                 gpio_isr_handler_add(B1_PIN, buttons_isr_handler, (void*)B1_PIN);
                 gpio_isr_handler_add(B2_PIN, buttons_isr_handler, (void*)B2_PIN);
+                // gpio_isr_handler_add(B3_PIN, buttons_isr_handler, (void*)B3_PIN);
             }
         }
 
@@ -372,6 +374,7 @@ app_main() {
 
     /* Set the mode given the switch state defined in controller.c */
     doSerial = !(bool)gpio_get_level(SW_PIN);
+    gpio_set_level(LED1_PIN, !doSerial);
     
     /* Create tasks */
     xTaskCreate(espnow_recv_task, "espnow_recv_task", 4096, NULL, 4, NULL);
