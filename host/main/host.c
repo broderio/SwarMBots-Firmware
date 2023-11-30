@@ -133,9 +133,6 @@ espnow_recv_task(void* args) {
         ESP_LOGI(ESPNOW_RECV_TAG, "Could not get mac address, error code %d", err);
     }
 
-    /* Delay for 1 second */
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
-
     /* Print host mac address */
     ESP_LOGI(ESPNOW_RECV_TAG, "Host MAC: " MACSTR, MAC2STR(mac));
 
@@ -205,11 +202,6 @@ serial_mode_task(void* arg) {
     intr_alloc_flags = 0;
     ESP_ERROR_CHECK(uart_driver_install(0, 2 * ESPNOW_DATA_MAX_LEN, 0, 0, NULL, intr_alloc_flags));
     ESP_ERROR_CHECK(uart_param_config(UART_PORT_NUM, &uart_config));
-
-    /* Suspend immediately if in controller mode */
-    if (!doSerial) {
-        vTaskSuspend(NULL);
-    }
     
     ESP_LOGI(SERIAL_TAG, "Serial mode");
 
@@ -233,7 +225,10 @@ serial_mode_task(void* arg) {
             add_peer(mac_address);
         }
 
-        espnow_data_send(mac_address, packet, pkt_len);
+        
+        if (doSerial || memcmp(evt.mac_addr, peers[curr_bot]) != 0) {
+            espnow_data_send(mac_address, packet, pkt_len);
+        }
 
         xTaskDelayUntil(&xLastWakeTime, 1);
     }
@@ -312,7 +307,6 @@ main_task(void* args) {
                 ESP_LOGI("SWITCH", "Serial mode");
 
                 vTaskSuspend(pilotMode);
-                vTaskResume(serialMode);
 
                 /* Remove ISR for buttons */
                 gpio_isr_handler_remove(B1_PIN);
@@ -321,7 +315,6 @@ main_task(void* args) {
             } else {
                 ESP_LOGI("SWITCH", "Pilot mode");
 
-                vTaskSuspend(serialMode);
                 vTaskResume(pilotMode);
 
                 /* Add ISR for buttons */

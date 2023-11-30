@@ -111,8 +111,6 @@ espnow_recv_task(void* args) {
         ESP_LOGI(ESPNOW_RECV_TAG, "Could not get mac address, error code %d", err);
     }
 
-    vTaskDelay(200 / portTICK_PERIOD_MS);
-
     /* Print client mac address */
     ESP_LOGI(ESPNOW_RECV_TAG, "Client MAC: " MACSTR, MAC2STR(mac));
 
