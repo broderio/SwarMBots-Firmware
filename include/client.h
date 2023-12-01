@@ -74,7 +74,7 @@ connect_to_host(uint8_t* host_mac_addr) {
     if (xQueueReceive(espnow_recv_queue, &evt, portMAX_DELAY) == pdTRUE) {
         esp_now_peer_info_t* peer;
         esp_now_rate_config_t rate_config = {
-            .phymode = WIFI_PHY_MODE_HT40,
+            .phymode = WIFI_PHY_MODE_HT20,
             .rate = WIFI_PHY_RATE_MCS7_SGI,
         };
 

@@ -68,7 +68,7 @@ uint8_t *create_timesync_packet(uint64_t time);
 void
 add_peer(uint8_t* mac_address) {
     esp_now_rate_config_t rate_config = {
-        .phymode = WIFI_PHY_MODE_HT40,
+        .phymode = WIFI_PHY_MODE_HT20,
         .rate = WIFI_PHY_RATE_MCS7_SGI,
     };
 
