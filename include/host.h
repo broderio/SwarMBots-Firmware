@@ -38,6 +38,9 @@
 #define JS_X_PIN      5                         /**< Joystick X pin on board (ADC1_CHANNEL4) */
 #define B1_PIN        9                         /**< Controller button 1 pin on board (GPIO)*/
 #define B2_PIN        10                        /**< Controller Button 2 pin on board (GPIO)*/
+#define B3_PIN        8                         /**< Controller button 3 pin on board (GPIO)*/
+#define LED1_PIN      11                        /**< LED 1 pin on board (GPIO)*/
+#define LED2_PIN      12                        /**< LED 2 pin on board (GPIO)*/
 #define SW_PIN        17                        /**< Switch pin on board (GPIO)*/
 
 /* ==================================== GLOBAL VARIABLES ==================================== */
@@ -65,7 +68,7 @@ uint8_t *create_timesync_packet(uint64_t time);
 void
 add_peer(uint8_t* mac_address) {
     esp_now_rate_config_t rate_config = {
-        .phymode = WIFI_PHY_MODE_HT40,
+        .phymode = WIFI_PHY_MODE_HT20,
         .rate = WIFI_PHY_RATE_MCS7_SGI,
     };
 

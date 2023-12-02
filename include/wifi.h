@@ -41,7 +41,7 @@
 #define ESPNOW_WIFI_IF          ESP_IF_WIFI_AP      /**< sets ESPNOW to softAP interface (not used)*/
 
 /* wifi channel - use only 1, 6, or 11 for FCC compliance & reliability */
-#define ESPNOW_CHANNEL          1                   /**< Sets channel to be used by 2.4GHz wifi. FCC restrictions apply.*/
+#define ESPNOW_CHANNEL          11                  /**< Sets channel to be used by 2.4GHz wifi. FCC restrictions apply.*/
 #define ESPNOW_PMK              "pmk1234567890123"  /**< Primary master key - used for packet encoding*/
 #define ESPNOW_DATA_MAX_LEN     250                 /**< Physical maximum size of an ESPNOW payload*/
 #define ESPNOW_MAXDELAY         (size_t)0xffffffff  /**< Maximum allowable number of FreeRTOS ticks to delay*/
@@ -306,7 +306,7 @@ wifi_init(void) {
     ESP_ERROR_CHECK(esp_wifi_start());
 
     /* NOTE: may need to add channel negotiation logic */
-    ESP_ERROR_CHECK(esp_wifi_set_channel(ESPNOW_CHANNEL, WIFI_SECOND_CHAN_ABOVE));
+    ESP_ERROR_CHECK(esp_wifi_set_channel(ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE));
 }
 
 /**

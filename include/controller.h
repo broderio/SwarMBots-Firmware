@@ -49,7 +49,8 @@
 #include "wifi.h"
 
 /* ==================================== #DEFINED CONSTS ==================================== */
-#define MAX_VEL 0.5 /**< Maximum velocity of the MBot in m/s */
+#define MAX_LIN_VEL 0.25 /**< Maximum linear velocity of the MBot in m/s */
+#define MAX_ANG_VEL 1.5 /**< Maximum angular velocity of the MBot in rad/s */
 
 /* ==================================== GLOBAL VARIABLES ==================================== */
 
@@ -93,16 +94,29 @@ void get_vel_from_joystick(float* vx, float* wz) {
     adc_oneshot_get_calibrated_result(adc1_handle, JS_Y_cali, ADC_CHANNEL_3, &vy_adc);
     adc_oneshot_get_calibrated_result(adc1_handle, JS_X_cali, ADC_CHANNEL_4, &vx_adc);
 
-    // ESP_LOGI(PILOT_TAG, "Vertical Voltage: %d", vy_adc);
-    // ESP_LOGI(PILOT_TAG, "Horizontal Voltage: %d", vx_adc);
+    // ESP_LOGI("JOYSTICK", "Vertical Voltage: %d", vy_adc - joystick_y);
+    // ESP_LOGI("JOYSTICK", "Horizontal Voltage: %d", vx_adc - joystick_x);
 
     /* max out at 1 m/s */
-    *vx = (abs(vy_adc - joystick_y) > 50) ? (float)vy_adc * (2.0 * MAX_VEL) / 946.0 - MAX_VEL : 0;
-    *wz = (abs(vx_adc - joystick_x) > 50) ? -(float)vx_adc * (6.0 * MAX_VEL) / 946.0 + 3 * MAX_VEL : 0;
+    int voltage_y = vy_adc - joystick_y;
+    int voltage_x = vx_adc - joystick_x;
+    if (abs(voltage_y) < 50) 
+        *wz = 0;
+    else
+        *wz = MAX_ANG_VEL * (-0.00363636 * voltage_y + 0.0909091);
 
-    //ESP_LOGI(PILOT_TAG, "Forward Velocity: %f m/s", *vx);
-    //ESP_LOGI(PILOT_TAG, "Turn Velocity: %f m/s", *wz);
+    if (abs(voltage_x) < 50)
+        *vx = 0;
+    else
+        *vx = MAX_LIN_VEL * (-0.00347826 * voltage_x + 0.0434783);
 
+    ESP_LOGI("JOYSTICK", "vy_adc: %d, vx_adc: %d, wz: %.3f, vx: %.3f", voltage_y, voltage_x, *wz, *vx);
+
+    // *vx = (abs(vx_adc - joystick_x) > 50) ? -(float)vx_adc * (2.0 * MAX_VEL) / 946.0 + MAX_VEL : 0;
+    // *wz = (abs(vy_adc - joystick_y) > 50) ? -(float)vy_adc * (6.0 * MAX_VEL) / 946.0 + 3 * MAX_VEL : 0;
+
+    // ESP_LOGI("JOYSTICK", "Forward Velocity: %f m/s", *vx);
+    // ESP_LOGI("JOYSTICK", "Turn Velocity: %f m/s", *wz);
 }
 
 /**
@@ -146,10 +160,15 @@ buttons_isr_handler(void* arg) {
     }
     last_button = gpio_num;
     last_press = ticks;
-    if (gpio_num == B1_PIN) {
-        curr_bot = (curr_bot + 1) % peer_num;
-    } else {
-        curr_bot = (curr_bot == 0) ? peer_num - 1 : curr_bot - 1;
+
+    if (peer_num == 0) return;
+    switch (gpio_num) {
+        case B1_PIN:
+            curr_bot = (curr_bot + 1) % peer_num;
+            break;
+        case B2_PIN:
+            curr_bot = (curr_bot + peer_num - 1) % peer_num;
+            break;
     }
 }
 
@@ -170,6 +189,7 @@ switch_isr_handler(void* arg) {
     last_switch = ticks;
 
     doSerial = !doSerial;
+    gpio_set_level(LED1_PIN, !doSerial);
 
     /* Give switch semaphore */
     xSemaphoreGiveFromISR(switch_sem, NULL);
@@ -199,7 +219,7 @@ controller_init() {
 
     gpio_config_t b_config = {
         .intr_type = GPIO_INTR_POSEDGE,
-        .pin_bit_mask = (0b1 << B1_PIN) | (0b1 << B2_PIN),
+        .pin_bit_mask = (0b1 << B1_PIN) | (0b1 << B2_PIN) | (0b1 << B3_PIN),
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = 1,
     };
@@ -209,6 +229,13 @@ controller_init() {
         .pin_bit_mask = (0b1 << SW_PIN),
         .mode = GPIO_MODE_INPUT,
         .pull_down_en = 1,
+    };
+
+    gpio_config_t led_config = {
+        .pin_bit_mask = (0b1 << LED1_PIN) | (0b1 << LED2_PIN),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_down_en = 0,
+        .pull_up_en = 0,
     };
 
     ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config1, &adc1_handle));
@@ -224,6 +251,7 @@ controller_init() {
     /* Configure the GPIOs */
     gpio_config(&b_config);
     gpio_config(&sw_config);
+    gpio_config(&led_config);
 
     /* Install gpio isr service */
     gpio_install_isr_service(0);
@@ -237,6 +265,7 @@ controller_init() {
     /* Hook isr handler for specific gpio pin */
     gpio_isr_handler_add(B1_PIN, buttons_isr_handler, (void*)B1_PIN);
     gpio_isr_handler_add(B2_PIN, buttons_isr_handler, (void*)B2_PIN);
+    // gpio_isr_handler_add(B3_PIN, buttons_isr_handler, (void*)B3_PIN);
     gpio_isr_handler_add(SW_PIN, switch_isr_handler, (void*)SW_PIN);
 }
 
