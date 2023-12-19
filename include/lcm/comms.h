@@ -56,6 +56,8 @@ typedef struct __attribute__((__packed__)) packets_wrapper {
 } packets_wrapper_t;
 
 uint8_t checksum(uint8_t* addends, int len);
+void write_usb(uint8_t* data, size_t len);
+void read_usb(uint8_t* data, size_t len);
 void read_mac_address(uint8_t* mac_address, uint16_t* pkt_len);
 void read_header(uint8_t* header_data);
 void read_message(uint8_t* msg_data_serialized, uint16_t message_len, char* topic_msg_data_checksum);
@@ -76,29 +78,45 @@ checksum(uint8_t* addends, int len) {
 }
 
 void
+write_usb(uint8_t* data, size_t len) {
+    tinyusb_cdcacm_write_queue(0, data, len);
+    tinyusb_cdcacm_write_flush(0, 0);
+}
+
+void
+read_usb(uint8_t* data, size_t len) {
+    size_t bytes_read = 0;
+    while (bytes_read < len) {
+        size_t tmp;
+        tinyusb_cdcacm_read(0, data + bytes_read, len - bytes_read, &tmp);
+        bytes_read += tmp;
+    }
+}
+
+void
 read_mac_address(uint8_t* mac_address, uint16_t* pkt_len) {
     uint8_t trigger_val = 0x00;
     while (trigger_val != 0xff) {
-        uart_read_bytes(0, &trigger_val, 1, 1);
+        read_usb(&trigger_val, 1);
     }
-    uart_read_bytes(0, pkt_len, 2, 1);
-    uart_read_bytes(0, mac_address, MAC_ADDR_LEN, 1);
+    read_usb((uint8_t*)pkt_len, 2);
+    read_usb(mac_address, MAC_ADDR_LEN);
 }
 
 void
 read_header(uint8_t* header_data) {
-    uart_read_bytes(0, header_data, ROS_HEADER_LEN, 1);
+    read_usb(header_data, ROS_HEADER_LEN);
 }
 
 void
 read_message(uint8_t* msg_data_serialized, uint16_t message_len, char* topic_msg_data_checksum) {
-    uart_read_bytes(0, msg_data_serialized, message_len, 1);
-    uart_read_bytes(0, topic_msg_data_checksum, 1, 1);
+    read_usb(msg_data_serialized, message_len);
+    read_usb((uint8_t*)topic_msg_data_checksum, 1);
 }
 
 void
 read_packet(uint8_t* pkt_data, uint16_t pkt_len) {
-    uart_read_bytes(0, pkt_data, pkt_len, 1);
+    read_usb(pkt_data, pkt_len);
 }
 
 // Function to validate the header

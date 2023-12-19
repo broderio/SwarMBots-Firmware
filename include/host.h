@@ -43,6 +43,7 @@
 #define B4_PIN        11                        /**< Controller button 4 (Left) pin on board (GPIO)*/
 #define LED1_PIN      15                        /**< LED 1 pin on board (GPIO)*/
 #define LED2_PIN      16                        /**< LED 2 pin on board (GPIO)*/
+#define USB_BUF_SIZE  512                       /**< Size of buffer for USB communication */
 
 /* ==================================== GLOBAL VARIABLES ==================================== */
 

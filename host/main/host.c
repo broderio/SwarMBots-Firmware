@@ -46,6 +46,8 @@
 #include "esp_now.h"
 #include "esp_wifi.h"
 #include "esp_timer.h"
+#include "tinyusb.h"
+#include "tusb_cdc_acm.h"
 #include "lcm/comms.h"
 #include "lcm/mbot_lcm_msgs_serial.h"
 #include "mbot_params.h"
@@ -168,8 +170,8 @@ espnow_recv_task(void* args) {
         memcpy(packet + 3, evt.mac_addr, MAC_ADDR_LEN);
         memcpy(packet + MAC_ADDR_LEN + 3, msg, data_len);
 
-        /* Send message to UART */
-        // uart_write_bytes(UART_PORT_NUM, (const char*)packet, packet_len); TODO: Change to USB
+        /* Send message to USB */
+        write_usb(packet, packet_len);
     }
 
     ESP_LOGE(ESPNOW_RECV_TAG, "Exited task espnow_recv_task loop");
@@ -187,24 +189,28 @@ espnow_recv_task(void* args) {
  */
 void
 serial_mode_task(void* arg) {
-    // TODO: Change to USB
-    // uart_config_t uart_config = {               /* Configure UART */
-    //     .baud_rate = 921600,
-    //     .data_bits = UART_DATA_8_BITS,
-    //     .parity = UART_PARITY_DISABLE,
-    //     .stop_bits = UART_STOP_BITS_1,
-    //     .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-    //     .source_clk = UART_SCLK_DEFAULT,
-    // };
-    // intr_alloc_flags = 0;
-    // ESP_ERROR_CHECK(uart_driver_install(0, 2 * ESPNOW_DATA_MAX_LEN, 0, 0, NULL, intr_alloc_flags));
-    // ESP_ERROR_CHECK(uart_param_config(UART_PORT_NUM, &uart_config));
+    const tinyusb_config_t tusb_cfg = {
+        .device_descriptor = NULL,
+        .string_descriptor = NULL,
+        .external_phy = false,
+        .configuration_descriptor = NULL,
+    };
+    ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
+
+    tinyusb_config_cdcacm_t acm_cfg = {
+        .usb_dev = TINYUSB_USBDEV_0,
+        .cdc_port = TINYUSB_CDC_ACM_0,
+        .rx_unread_buf_sz = USB_BUF_SIZE,
+        .callback_rx = NULL,
+        .callback_rx_wanted_char = NULL,
+        .callback_line_state_changed = NULL,
+        .callback_line_coding_changed = NULL
+    };
+    ESP_ERROR_CHECK(tusb_cdc_acm_init(&acm_cfg));
     
     TickType_t xLastWakeTime;
-
-    int32_t intr_alloc_flags;
     uint8_t packet[ESPNOW_DATA_MAX_LEN];
-    
+
     /* Suspend immediately if in controller mode */
     if (!doSerial) {
         vTaskSuspend(NULL);
