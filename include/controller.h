@@ -163,10 +163,10 @@ buttons_isr_handler(void* arg) {
 
     if (peer_num == 0) return;
     switch (gpio_num) {
-        case B1_PIN:
+        case B2_PIN:
             curr_bot = (curr_bot + 1) % peer_num;
             break;
-        case B2_PIN:
+        case B4_PIN:
             curr_bot = (curr_bot + peer_num - 1) % peer_num;
             break;
     }
@@ -219,7 +219,7 @@ controller_init() {
 
     gpio_config_t b_config = {
         .intr_type = GPIO_INTR_POSEDGE,
-        .pin_bit_mask = (0b1 << B1_PIN) | (0b1 << B2_PIN) | (0b1 << B3_PIN),
+        .pin_bit_mask = (0b1 << B2_PIN) | (0b1 << B4_PIN) | (0b1 << B5_PIN),
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = 1,
     };
@@ -263,9 +263,9 @@ controller_init() {
     switch_sem = xSemaphoreCreateBinary();
 
     /* Hook isr handler for specific gpio pin */
-    gpio_isr_handler_add(B1_PIN, buttons_isr_handler, (void*)B1_PIN);
     gpio_isr_handler_add(B2_PIN, buttons_isr_handler, (void*)B2_PIN);
-    // gpio_isr_handler_add(B3_PIN, buttons_isr_handler, (void*)B3_PIN);
+    gpio_isr_handler_add(B4_PIN, buttons_isr_handler, (void*)B4_PIN);
+    // gpio_isr_handler_add(B5_PIN, buttons_isr_handler, (void*)B5_PIN);
     gpio_isr_handler_add(SW_PIN, switch_isr_handler, (void*)SW_PIN);
 }
 

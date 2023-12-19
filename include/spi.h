@@ -50,7 +50,6 @@ void spi_post_trans_cb(spi_slave_transaction_t* trans);
 
 int spi_init(void);
 void spi_transaction(spi_slave_transaction_t *trans);
-void sync_spi(void);
 
 /* ==================================== FUNCTION DEFINITIONS ==================================== */
 
@@ -64,9 +63,9 @@ void sync_spi(void);
 void
 spi_post_setup_cb(spi_slave_transaction_t* trans) {
     if (trans->tx_buffer == NULL) {
-        gpio_set_level(GPIO_RECV, 1);
+        gpio_set_level(LOFI_HS_PIN, 1);
     } else {
-        gpio_set_level(GPIO_SEND, 1);
+        gpio_set_level(LIFO_HS_PIN, 1);
     }
 }
 
@@ -80,9 +79,9 @@ spi_post_setup_cb(spi_slave_transaction_t* trans) {
 void
 spi_post_trans_cb(spi_slave_transaction_t* trans) {
     if (trans->tx_buffer == NULL) {
-        gpio_set_level(GPIO_RECV, 0);
+        gpio_set_level(LOFI_HS_PIN, 0);
     } else {
-        gpio_set_level(GPIO_SEND, 0);
+        gpio_set_level(LIFO_HS_PIN, 0);
     }
 }
 
@@ -94,16 +93,16 @@ spi_post_trans_cb(spi_slave_transaction_t* trans) {
 int
 spi_init(void) {
     spi_bus_config_t buscfg = {                 /* Configuration for the SPI bus *//* Configuration for the SPI bus */
-        .mosi_io_num = GPIO_MOSI,
-        .miso_io_num = GPIO_MISO,
-        .sclk_io_num = GPIO_SCLK,
+        .mosi_io_num = LOFI_PIN,
+        .miso_io_num = LIFO_PIN,
+        .sclk_io_num = SCLK_PIN,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
     };
 
     spi_slave_interface_config_t slvcfg = {     /* Configuration for the SPI slave interface */
         .mode = 0,
-        .spics_io_num = GPIO_CS,
+        .spics_io_num = CS_PIN,
         .queue_size = 6,
         .flags = 0,
         .post_setup_cb = spi_post_setup_cb,
@@ -114,9 +113,9 @@ spi_init(void) {
     gpio_config_t io_conf;
 
     /* Enable pull-ups on SPI lines so we don't detect rogue pulses when no master is connected. */
-    gpio_set_pull_mode(GPIO_MOSI, GPIO_PULLUP_ONLY);
-    gpio_set_pull_mode(GPIO_SCLK, GPIO_PULLUP_ONLY);
-    gpio_set_pull_mode(GPIO_CS, GPIO_PULLUP_ONLY);
+    gpio_set_pull_mode(LOFI_PIN, GPIO_PULLUP_ONLY);
+    gpio_set_pull_mode(SCLK_PIN, GPIO_PULLUP_ONLY);
+    gpio_set_pull_mode(CS_PIN, GPIO_PULLUP_ONLY);
 
     /* Initialize SPI slave interface */
     ret = spi_slave_initialize(SPI2_HOST, &buscfg, &slvcfg, SPI_DMA_CH_AUTO);
@@ -128,7 +127,7 @@ spi_init(void) {
     /* Initialize GPIO handshake for sending messages to MBoard */
     io_conf.intr_type = GPIO_INTR_DISABLE;
     io_conf.mode = GPIO_MODE_OUTPUT;
-    io_conf.pin_bit_mask = (1 << GPIO_SEND);
+    io_conf.pin_bit_mask = (1 << LIFO_HS_PIN);
     io_conf.pull_down_en = 0;
     io_conf.pull_up_en = 0;
     ret = gpio_config(&io_conf);
@@ -140,7 +139,7 @@ spi_init(void) {
     /* Initialize GPIO handshake for receiving messages from MBoard */
     io_conf.intr_type = GPIO_INTR_DISABLE;
     io_conf.mode = GPIO_MODE_OUTPUT;
-    io_conf.pin_bit_mask = (1 << GPIO_RECV);
+    io_conf.pin_bit_mask = (1 << LOFI_HS_PIN);
     io_conf.pull_down_en = 0;
     io_conf.pull_up_en = 0;
     ret = gpio_config(&io_conf);
@@ -170,10 +169,6 @@ void spi_transaction(spi_slave_transaction_t *trans) {
             ESP_LOGE("SPI_TRANS", "SPI transmission failed.");
         }
     }
-}
-
-void sync_spi(void) {
-    
 }
 
 #endif

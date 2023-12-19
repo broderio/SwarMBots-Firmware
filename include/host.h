@@ -33,20 +33,21 @@
 
 /* ==================================== #DEFINED CONSTS ==================================== */
 
-#define UART_PORT_NUM 0                         /**< Port to be used by UART*/
 #define JS_Y_PIN      4                         /**< Joystick Y pin on board (ADC1_CHANNEL3) */
 #define JS_X_PIN      5                         /**< Joystick X pin on board (ADC1_CHANNEL4) */
-#define B1_PIN        9                         /**< Controller button 1 pin on board (GPIO)*/
-#define B2_PIN        10                        /**< Controller Button 2 pin on board (GPIO)*/
-#define B3_PIN        8                         /**< Controller button 3 pin on board (GPIO)*/
-#define LED1_PIN      11                        /**< LED 1 pin on board (GPIO)*/
-#define LED2_PIN      12                        /**< LED 2 pin on board (GPIO)*/
-#define SW_PIN        17                        /**< Switch pin on board (GPIO)*/
+#define SW_PIN        6                         /**< Switch pin on board (GPIO)*/
+#define B5_PIN        7                         /**< Controller button 5 (Joystick) pin on board (GPIO)*/
+#define B1_PIN        8                         /**< Controller button 1 (Up) pin on board (GPIO)*/
+#define B2_PIN        9                         /**< Controller Button 2 (Right) pin on board (GPIO)*/
+#define B3_PIN        10                        /**< Controller button 3 (Down) pin on board (GPIO)*/
+#define B4_PIN        11                        /**< Controller button 4 (Left) pin on board (GPIO)*/
+#define LED1_PIN      15                        /**< LED 1 pin on board (GPIO)*/
+#define LED2_PIN      16                        /**< LED 2 pin on board (GPIO)*/
 
 /* ==================================== GLOBAL VARIABLES ==================================== */
 
 extern esp_now_peer_info_t peers[8];            /**< Array of peer info (to avoid using built-in ESPNOW functions)*/
-extern int32_t peer_num;                    /**< The number of known peers*/
+extern int32_t peer_num;                        /**< The number of known peers*/
 
 /* ==================================== DATA STRUCTS ==================================== */
 

@@ -36,12 +36,12 @@
 
 /* ==================================== #DEFINED CONSTS ==================================== */
 
-#define GPIO_RECV           2                   /**< GPIO Pin for SPI Handshake Receive wire */
-#define GPIO_SEND           3                   /**< GPIO Pin for SPI Handshake Send wire */
-#define GPIO_CS             10                  /**< GPIO Pin for SPI chip select wire */
-#define GPIO_MOSI           11                  /**< GPIO Pin for SPI controller out/peripheral in */
-#define GPIO_SCLK           12                  /**< GPIO Pin for SPI controller clock signal */
-#define GPIO_MISO           13                  /**< GPIO Pin for SPI controller in/peripheral out */
+#define LOFI_HS_PIN             4                   /**< GPIO Pin for SPI Handshake Receive wire */
+#define LIFO_HS_PIN             5                   /**< GPIO Pin for SPI Handshake Send wire */
+#define LIFO_PIN                6                   /**< GPIO Pin for SPI controller in/peripheral out */
+#define CS_PIN                  7                   /**< GPIO Pin for SPI chip select wire */
+#define SCLK_PIN                15                  /**< GPIO Pin for SPI controller clock signal */
+#define LOFI_PIN                16                  /**< GPIO Pin for SPI controller out/peripheral in */
 
 #define CONNECT_TO_HOST_TAG "CONNECT_TO_HOST"   /**< Tag for logging from \c connect_to_host() */
 

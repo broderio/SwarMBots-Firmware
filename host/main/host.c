@@ -94,9 +94,9 @@ print_task(void* arg) {
 
         if (xQueueReceive(gpio_evt_queue, &io_num, portMAX_DELAY)) {
 
-            if (io_num == B1_PIN) {
+            if (io_num == B2_PIN) {
                 ESP_LOGI(PRINT_TAG, "Button Up");
-            } else if (io_num == B2_PIN) {
+            } else if (io_num == B4_PIN) {
                 ESP_LOGI(PRINT_TAG, "Button Down");
             } else {
                 if (!doSerial) {
@@ -169,7 +169,7 @@ espnow_recv_task(void* args) {
         memcpy(packet + MAC_ADDR_LEN + 3, msg, data_len);
 
         /* Send message to UART */
-        uart_write_bytes(UART_PORT_NUM, (const char*)packet, packet_len);
+        // uart_write_bytes(UART_PORT_NUM, (const char*)packet, packet_len); TODO: Change to USB
     }
 
     ESP_LOGE(ESPNOW_RECV_TAG, "Exited task espnow_recv_task loop");
@@ -187,25 +187,24 @@ espnow_recv_task(void* args) {
  */
 void
 serial_mode_task(void* arg) {
-    uart_config_t uart_config = {               /* Configure UART */
-        .baud_rate = 921600,
-        .data_bits = UART_DATA_8_BITS,
-        .parity = UART_PARITY_DISABLE,
-        .stop_bits = UART_STOP_BITS_1,
-        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-        .source_clk = UART_SCLK_DEFAULT,
-    };
+    // TODO: Change to USB
+    // uart_config_t uart_config = {               /* Configure UART */
+    //     .baud_rate = 921600,
+    //     .data_bits = UART_DATA_8_BITS,
+    //     .parity = UART_PARITY_DISABLE,
+    //     .stop_bits = UART_STOP_BITS_1,
+    //     .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+    //     .source_clk = UART_SCLK_DEFAULT,
+    // };
+    // intr_alloc_flags = 0;
+    // ESP_ERROR_CHECK(uart_driver_install(0, 2 * ESPNOW_DATA_MAX_LEN, 0, 0, NULL, intr_alloc_flags));
+    // ESP_ERROR_CHECK(uart_param_config(UART_PORT_NUM, &uart_config));
     
     TickType_t xLastWakeTime;
 
     int32_t intr_alloc_flags;
     uint8_t packet[ESPNOW_DATA_MAX_LEN];
-
-
-    intr_alloc_flags = 0;
-    ESP_ERROR_CHECK(uart_driver_install(0, 2 * ESPNOW_DATA_MAX_LEN, 0, 0, NULL, intr_alloc_flags));
-    ESP_ERROR_CHECK(uart_param_config(UART_PORT_NUM, &uart_config));
-
+    
     /* Suspend immediately if in controller mode */
     if (!doSerial) {
         vTaskSuspend(NULL);
@@ -315,8 +314,8 @@ main_task(void* args) {
                 vTaskResume(serialMode);
 
                 /* Remove ISR for buttons */
-                gpio_isr_handler_remove(B1_PIN);
                 gpio_isr_handler_remove(B2_PIN);
+                gpio_isr_handler_remove(B4_PIN);
                 // gpio_isr_handler_remove(B3_PIN);
             } else {
                 ESP_LOGI("SWITCH", "Pilot mode");
@@ -325,8 +324,8 @@ main_task(void* args) {
                 vTaskResume(pilotMode);
 
                 /* Add ISR for buttons */
-                gpio_isr_handler_add(B1_PIN, buttons_isr_handler, (void*)B1_PIN);
                 gpio_isr_handler_add(B2_PIN, buttons_isr_handler, (void*)B2_PIN);
+                gpio_isr_handler_add(B4_PIN, buttons_isr_handler, (void*)B4_PIN);
                 // gpio_isr_handler_add(B3_PIN, buttons_isr_handler, (void*)B3_PIN);
             }
         }
