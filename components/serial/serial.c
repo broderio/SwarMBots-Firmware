@@ -1,81 +1,4 @@
-#include <memory.h>
-#include <stdint.h>
-#include <stdio.h>
-#include "driver/uart.h"
-#include "mbot_lcm_msgs_serial.h"
-#include "wifi.h"
-
-#ifndef COMMS_COMMONS_H
-#define COMMS_COMMONS_H
-
-// definitions
-#define SYNC_FLAG      0xff //beginning of packet sync flag
-#define VERSION_FLAG   0xfe //version flag compatible with ROS2
-#define SENSORS_TOPIC  101  //default message topic when a message is sent from the pico to the rpi
-#define COMMANDS_TOPIC 102  //default message topic when a message is sent from the rpi to the pico
-#define SYNC_HZ        2    //frequency of the sync signal in Hz
-#define SYNC_PERIOD_MS (1000 / SYNC_HZ) //period of the sync signal in ms
-#define MBOT_OUTPUT_HZ 25   //frequency of the mbot output in Hz
-#define MBOT_OUTPUT_PERIOD_MS (1000 / MBOT_OUTPUT_HZ) //period of the mbot output in ms
-
-#define PICO_IN_MSG    sizeof(data_pico) //equal to the size of the data_pico struct
-#define RPI_IN_MSG     sizeof(data_rpi)  //equal to the size of the data_rpi struct
-#define ROS_HEADER_LEN 7
-#define ROS_FOOTER_LEN 1
-#define ROS_PKG_LEN    (ROS_HEADER_LEN + ROS_FOOTER_LEN) //length (in bytes) of ros packaging (header and footer)
-#define PICO_IN_BYTES                                                                                                  \
-    (PICO_IN_MSG + ROS_PKG_LEN) //equal to the size of the data_pico struct data plus bytes for ros packaging
-#define RPI_IN_BYTES                                                                                                   \
-    (RPI_IN_MSG + ROS_PKG_LEN) //equal to the size of the data_rpi struct data plus bytes for ros packaging
-
-#define TIMESYNC_PERIOD_US 1000000
-
-enum message_topics {
-    MBOT_TIMESYNC = 201,
-    MBOT_ODOMETRY = 210,
-    MBOT_ODOMETRY_RESET = 211,
-    MBOT_VEL_CMD = 214,
-    MBOT_IMU = 220,
-    MBOT_ENCODERS = 221,
-    MBOT_ENCODERS_RESET = 222,
-    MBOT_MOTOR_PWM_CMD = 230,
-    MBOT_MOTOR_VEL_CMD = 231,
-    MBOT_MOTOR_VEL = 232,
-    MBOT_MOTOR_PWM = 233,
-    MBOT_VEL = 234
-};
-
-//consider moving to wifi.h?
-typedef struct __attribute__((__packed__)) packets_wrapper {
-    serial_mbot_encoders_t encoders;
-    serial_pose2D_t odom;
-    serial_mbot_imu_t imu;
-    serial_twist2D_t mbot_vel;
-    serial_mbot_motor_vel_t motor_vel;
-    serial_mbot_motor_pwm_t motor_pwm;
-} packets_wrapper_t;
-
-uint8_t checksum(uint8_t* addends, int len);
-void write_usb(uint8_t* data, size_t len);
-void read_usb(uint8_t* data, size_t len);
-void read_mac_address(uint8_t* mac_address, uint16_t* pkt_len);
-void read_header(uint8_t* header_data);
-void read_message(uint8_t* msg_data_serialized, uint16_t message_len, char* topic_msg_data_checksum);
-void read_packet(uint8_t* pkt_data, uint16_t pkt_len);
-int validate_header(uint8_t* header_data);
-int validate_message(uint8_t* header_data, uint8_t* msg_data_serialized, uint16_t message_len,
-                     char topic_msg_data_checksum);
-int encode_msg(uint8_t* MSG, int msg_len, uint16_t TOPIC, uint8_t* ROSPKT, int rospkt_len);
-
-uint8_t
-checksum(uint8_t* addends, int len) {
-    //takes in an array and sums the contents then checksums the array
-    int sum = 0;
-    for (int i = 0; i < len; i++) {
-        sum += addends[i];
-    }
-    return 255 - ((sum) % 256);
-}
+#include "serial.h"
 
 void
 write_usb(uint8_t* data, size_t len) {
@@ -91,6 +14,16 @@ read_usb(uint8_t* data, size_t len) {
         tinyusb_cdcacm_read(0, data + bytes_read, len - bytes_read, &tmp);
         bytes_read += tmp;
     }
+}
+
+uint8_t
+checksum(uint8_t* addends, int len) {
+    //takes in an array and sums the contents then checksums the array
+    int sum = 0;
+    for (int i = 0; i < len; i++) {
+        sum += addends[i];
+    }
+    return 255 - ((sum) % 256);
 }
 
 void
@@ -197,5 +130,3 @@ encode_msg(uint8_t* MSG, int msg_len, uint16_t TOPIC, uint8_t* ROSPKT, int rospk
 
     return 1;
 }
-
-#endif

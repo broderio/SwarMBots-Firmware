@@ -26,12 +26,20 @@
  * Daniel Benedict      ( benedan@umich.edu )
  */
 
-#ifndef CLIENT_AP_H
-#define CLIENT_AP_H
+#ifndef CLIENT_H
+#define CLIENT_H
 
 /* ==================================== INCLUDES ==================================== */
 
-#include "lcm/comms.h"
+#include "serial.h"
+#include "esp_random.h"
+#include "esp_event.h"
+#include "esp_netif.h"
+#include "esp_wifi.h"
+#include "esp_log.h"
+#include "esp_mac.h"
+#include "esp_now.h"
+#include "esp_crc.h"
 #include "wifi.h"
 
 /* ==================================== #DEFINED CONSTS ==================================== */
@@ -43,6 +51,29 @@
 #define SCLK_PIN                15                  /**< GPIO Pin for SPI controller clock signal */
 #define LOFI_PIN                16                  /**< GPIO Pin for SPI controller out/peripheral in */
 
+#define MCLK_PIN                18                  /**< GPIO Pin for I2S master clock */
+#define PCLK_PIN                8                   /**< GPIO Pin for I2S peripheral clock */
+#define VSYNC_PIN               46                  /**< GPIO Pin for I2S vertical sync */
+#define HSYNC_PIN               9                   /**< GPIO Pin for I2S horizontal sync */
+#define D0_PIN                  14                  /**< GPIO Pin for I2S 0th bit data line */
+#define D1_PIN                  47                  /**< GPIO Pin for I2S 1st bit data line */
+#define D2_PIN                  48                  /**< GPIO Pin for I2S 2nd bit data line */
+#define D3_PIN                  21                  /**< GPIO Pin for I2S 3rd bit data line */
+#define D4_PIN                  13                  /**< GPIO Pin for I2S 4th bit data line */
+#define D5_PIN                  12                  /**< GPIO Pin for I2S 5th bit data line */
+#define D6_PIN                  11                  /**< GPIO Pin for I2S 6th bit data line */
+#define D7_PIN                  10                  /**< GPIO Pin for I2S 7th bit data line */
+
+#define SDA_PIN                 3                   /**< GPIO Pin for I2C data line */
+#define SCL_PIN                 2                   /**< GPIO Pin for I2C clock line */
+
+#define TX_PIN                  43                  /**< GPIO Pin for UART transmit line */
+#define RX_PIN                  44                  /**< GPIO Pin for UART receive line */
+
+#define PAIR_PIN                17                  /**< GPIO Pin for pairing button */
+
+#define LIDAR_PWM_PIN           1                   /**< GPIO Pin for LIDAR PWM signal */
+
 #define CONNECT_TO_HOST_TAG "CONNECT_TO_HOST"   /**< Tag for logging from \c connect_to_host() */
 
 /* ==================================== GLOBAL VARIABLES ==================================== */
@@ -52,63 +83,5 @@
 /* ==================================== FUNCTION PROTOTYPES ==================================== */
 
 void connect_to_host(uint8_t* host_mac_addr);
-
-/* ==================================== FUNCTION DEFINITIONS ==================================== */
-
-/**
- * @brief                   Helper function for initial ESPNOW setup that finds the host and adds it as a peer
- * 
- * @details                 Waits for a message to be received, then logs the MAC address of the sender as the
- *                          host. All other information contained in the message is discarded.
- * 
- * @param host_mac_addr     The MAC address of the host to be returned (value overwritten by function)
- */
-void
-connect_to_host(uint8_t* host_mac_addr) {
-    espnow_event_recv_t evt;
-
-    uint16_t data_len;
-    uint8_t msg[ESPNOW_DATA_MAX_LEN];
-
-    /* Wait for first message to add host as peer */
-    if (xQueueReceive(espnow_recv_queue, &evt, portMAX_DELAY) == pdTRUE) {
-        esp_now_peer_info_t* peer;
-        esp_now_rate_config_t rate_config = {
-            .phymode = WIFI_PHY_MODE_HT20,
-            .rate = WIFI_PHY_RATE_MCS7_SGI,
-        };
-
-        int32_t ret;
-
-        ESP_LOGI(CONNECT_TO_HOST_TAG, "Received message.");
-
-        /* Parse incoming packet */
-        ret = espnow_data_parse(evt.data, evt.data_len, msg, &data_len);
-        free(evt.data);
-
-        /* Check if data is invalid */
-        if (ret != 0) {
-            ESP_LOGE(CONNECT_TO_HOST_TAG, "Received invalid data");
-        }
-
-        /* Allocate peer */
-        peer = malloc(sizeof(esp_now_peer_info_t));
-        if (peer == NULL) {
-            ESP_LOGE(CONNECT_TO_HOST_TAG, "Malloc peer information fail");
-        }
-        memset(peer, 0, sizeof(esp_now_peer_info_t));
-        peer->channel = ESPNOW_CHANNEL;
-        peer->ifidx = ESPNOW_WIFI_IF;
-        peer->encrypt = false;
-        memcpy(peer->peer_addr, evt.mac_addr, MAC_ADDR_LEN);
-
-        /* Add peer */
-        ESP_ERROR_CHECK(esp_now_add_peer(peer));
-        free(peer);
-        memcpy(host_mac_addr, evt.mac_addr, MAC_ADDR_LEN);
-        esp_now_set_peer_rate_config(evt.mac_addr, &rate_config);
-        ESP_LOGI(CONNECT_TO_HOST_TAG, "Found host (MAC: " MACSTR ")", MAC2STR(evt.mac_addr));
-    }
-}
 
 #endif

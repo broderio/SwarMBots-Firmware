@@ -61,8 +61,7 @@
 #include "nvs_flash.h"
 
 #include "client.h"
-#include "lcm/comms.h"
-#include "lcm/mbot_lcm_msgs_serial.h"
+#include "serial.h"
 #include "spi.h"
 #include "wifi.h"
 
